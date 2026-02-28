@@ -1,0 +1,69 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+body {
+  font-family: 'Inter', sans-serif;
+}
+
+.logo-background {
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  overflow: hidden;
+}
+
+.logo-bg-element {
+  position: absolute;
+  opacity: 0.08;
+  filter: blur(80px);
+  animation: float 20s ease-in-out infinite;
+}
+
+.logo-bg-element:nth-child(1) {
+  top: -10%;
+  left: -5%;
+  width: 60%;
+  height: 60%;
+  background: radial-gradient(circle, #EFD43F 0%, transparent 70%);
+  animation-delay: 0s;
+}
+
+.logo-bg-element:nth-child(2) {
+  bottom: -10%;
+  right: -5%;
+  width: 50%;
+  height: 50%;
+  background: radial-gradient(circle, #6B7280 0%, transparent 70%);
+  animation-delay: -7s;
+}
+
+.logo-bg-element:nth-child(3) {
+  top: 30%;
+  right: 10%;
+  width: 40%;
+  height: 40%;
+  background: radial-gradient(circle, #EFD43F 0%, transparent 70%);
+  animation-delay: -14s;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(30px, -30px) scale(1.1);
+  }
+  66% {
+    transform: translate(-20px, 20px) scale(0.9);
+  }
+}
+
+.login-card {
+  backdrop-filter: blur(10px);
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
+}
+
+.input-focus:focus {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
