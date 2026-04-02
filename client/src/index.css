@@ -1,1 +1,203 @@
 @import "tailwindcss";
+
+/* Dark mode: supports both .dark class and data-theme attribute */
+@variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *));
+
+/* Apply Inter globally — loaded via <link> in index.html */
+html, body {
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+/* ============================================================
+   CSS CUSTOM PROPERTIES — B2A PLATFORM COLOR SYSTEM
+   ============================================================ */
+
+:root {
+  /* === Page === */
+  --color-bg-page:            #E2E2DC;
+  --color-bg-sidebar:         #FFFFFF;
+  --color-bg-card:            #FFFFFF;
+  --color-bg-card-nested:     #E2E2DC;
+
+  /* === Borders === */
+  --color-border-default:     #CACAC4;
+  --color-border-subtle:      #CACAC4;
+
+  /* === Text === */
+  --color-text-primary:       #0D0D0D;
+  --color-text-secondary:     #6B6B6F;
+  --color-text-tertiary:      #9E9EA3;
+
+  /* === Accent (Yellow) === */
+  --color-accent:             #FFD600;
+  --color-accent-bg:          rgba(255, 214, 0, 0.10);
+  --color-accent-text:        #0D0D0D;
+  --color-accent-hover:       #FFC400;
+
+  /* === Badge === */
+  --color-badge-bg:           rgba(255, 214, 0, 0.15);
+  --color-badge-text:         #8B7400;
+
+  /* === Nav === */
+  --color-nav-active:         #0D0D0D;
+  --color-nav-inactive:       #6B6B6F;
+  --color-nav-hover-bg:       rgba(0, 0, 0, 0.04);
+  --color-nav-active-bg:      rgba(255, 214, 0, 0.10);
+
+  /* === Inputs === */
+  --color-input-bg:           #FFFFFF;
+  --color-input-border:       #CACAC4;
+  --color-input-focus-ring:   #FFD600;
+  --color-input-placeholder:  #9E9EA3;
+
+  /* === Bar Charts / Progress === */
+  --color-bar-track:          #CACAC4;
+  --color-bar-fill-primary:   #FFD600;
+  --color-bar-fill-secondary: #9E9EA3;
+
+  /* === Avatar === */
+  --color-avatar-bg:          #E2E2DC;
+
+  /* === Misc === */
+  --color-label-bg:           rgba(0, 0, 0, 0.04);
+  --color-label-text:         #6B6B6F;
+  --color-divider:            #CACAC4;
+
+  /* === Semantic === */
+  --color-danger:             #D32F2F;
+  --color-danger-bg:          rgba(211, 47, 47, 0.08);
+  --color-success:            #2E7D32;
+  --color-success-bg:         rgba(46, 125, 50, 0.08);
+  --color-info:               #1565C0;
+  --color-info-bg:            rgba(21, 101, 192, 0.08);
+
+  /* === Toggle / Chips === */
+  --color-toggle-bg:          #E2E2DC;
+  --color-toggle-border:      #CACAC4;
+
+  /* === Logo === */
+  --color-logo-bg:            #FFD600;
+  --color-logo-text:          #0D0D0D;
+  --color-platform-label:     #0D0D0D;
+
+  /* === Typography === */
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  /* === Radius === */
+  --radius-sm:   6px;
+  --radius-md:   8px;
+  --radius-lg:   10px;
+  --radius-xl:   12px;
+  --radius-full: 9999px;
+
+  /* === Shadows === */
+  --shadow-card:     0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-elevated: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* ============================================================
+   DARK MODE OVERRIDES
+   ============================================================ */
+
+[data-theme="dark"] {
+  /* === Page === */
+  --color-bg-page:            #0D0D0D;
+  --color-bg-sidebar:         #1A1A1D;
+  --color-bg-card:            #2A2A2E;
+  --color-bg-card-nested:     #1A1A1D;
+
+  /* === Borders === */
+  --color-border-default:     rgba(255, 255, 255, 0.06);
+  --color-border-subtle:      rgba(255, 255, 255, 0.04);
+
+  /* === Text === */
+  --color-text-primary:       #FFFFFF;
+  --color-text-secondary:     #9E9EA3;
+  --color-text-tertiary:      #6B6B6F;
+
+  /* === Accent (Yellow) === */
+  --color-accent:             #FFD600;
+  --color-accent-bg:          rgba(255, 214, 0, 0.08);
+  --color-accent-text:        #FFD600;
+  --color-accent-hover:       #FFC400;
+
+  /* === Badge === */
+  --color-badge-bg:           rgba(255, 214, 0, 0.15);
+  --color-badge-text:         #FFD600;
+
+  /* === Nav === */
+  --color-nav-active:         #FFD600;
+  --color-nav-inactive:       #9E9EA3;
+  --color-nav-hover-bg:       rgba(255, 255, 255, 0.04);
+  --color-nav-active-bg:      rgba(255, 214, 0, 0.08);
+
+  /* === Inputs === */
+  --color-input-bg:           #1A1A1D;
+  --color-input-border:       #2A2A2E;
+  --color-input-focus-ring:   #FFD600;
+  --color-input-placeholder:  #6B6B6F;
+
+  /* === Bar Charts / Progress === */
+  --color-bar-track:          #1A1A1D;
+
+  /* === Avatar === */
+  --color-avatar-bg:          #2A2A2E;
+
+  /* === Misc === */
+  --color-label-bg:           rgba(255, 255, 255, 0.06);
+  --color-label-text:         #9E9EA3;
+  --color-divider:            #2A2A2E;
+
+  /* === Semantic === */
+  --color-danger:             #E53935;
+  --color-danger-bg:          rgba(229, 57, 53, 0.15);
+  --color-success:            #4CAF50;
+  --color-success-bg:         rgba(76, 175, 80, 0.15);
+  --color-info:               #388EDD;
+  --color-info-bg:            rgba(56, 142, 221, 0.15);
+
+  /* === Toggle / Chips === */
+  --color-toggle-bg:          #2A2A2E;
+  --color-toggle-border:      rgba(255, 255, 255, 0.1);
+
+  /* === Logo === */
+  --color-platform-label:     #FFFFFF;
+
+  /* === Shadows === */
+  --shadow-card:     0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-elevated: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+/* ============================================================
+   SMOOTH THEME TRANSITIONS
+   ============================================================ */
+
+*,
+*::before,
+*::after {
+  transition: background-color 0.3s ease, color 0.2s ease, border-color 0.3s ease;
+}
+
+.no-transition *,
+.no-transition *::before,
+.no-transition *::after {
+  transition: none !important;
+}
+
+/* ============================================================
+   SCROLLBARS
+   ============================================================ */
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-bg-card-nested);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-default);
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-tertiary);
+}

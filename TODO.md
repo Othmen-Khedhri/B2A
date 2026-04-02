@@ -1,0 +1,1 @@
+# Login Icons Positioning Fix\n\n- [ ] Step 1: Create TODO.md (done)\n- [ ] Step 2: Edit Login.tsx - Reposition email icons to left\n- [ ] Step 3: Edit Login.tsx - Reposition password eye toggle to left\n- [ ] Step 4: Add hover effects\n- [ ] Step 5: Test & complete

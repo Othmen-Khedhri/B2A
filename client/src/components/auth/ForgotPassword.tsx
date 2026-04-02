@@ -1,199 +1,196 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Mail, CheckCircle, AlertCircle } from 'lucide-react';
-import '../styles/login.css';   
-import myFile from '../../assets/file.svg';
+import { Link } from 'react-router-dom';
+import { ArrowLeft, Mail, CheckCircle, AlertCircle, Sun, Moon } from 'lucide-react';
+import '../styles/Login.css';
+import pic from '../../assets/pic1.jpg';
+import api from '../../services/api';
+import { useTheme } from '../../context/ThemeContext';
 
 const ForgotPassword: React.FC = () => {
-  const [email, setEmail] = useState('');
-  const [status, setStatus] = useState<'idle' | 'success' | 'error' | 'loading'>('idle');
+  const [email, setEmail]     = useState('');
+  const [status, setStatus]   = useState<'idle' | 'success' | 'error' | 'loading'>('idle');
   const [message, setMessage] = useState('');
+  const { theme, toggleTheme } = useTheme();
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     setStatus('loading');
-
     try {
-      // Replace with your actual API endpoint
-      const response = await fetch('/api/forgot-password', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        setStatus('success');
-        setMessage('Password reset link has been sent to your email. Please check your inbox.');
-      } else {
-        setStatus('error');
-        setMessage(data.message || 'This email is not registered in our database.');
-      }
-    } catch (error) {
+      const { data } = await api.post('/auth/forgot-password', { email });
+      setStatus('success');
+      setMessage(data.message || 'Password reset link has been sent to your email. Please check your inbox.');
+    } catch (err: unknown) {
       setStatus('error');
-      setMessage('An error occurred. Please try again later.');
+      setMessage(
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        'An error occurred. Please try again later.'
+      );
     }
   };
 
-  const resetForm = () => {
-    setStatus('idle');
-    setEmail('');
-    setMessage('');
-  };
+  const resetForm = () => { setStatus('idle'); setEmail(''); setMessage(''); };
 
   return (
-    <>
-      {/* Blurred Logo Background */}
-      <div className="logo-background">
-        <div className="logo-bg-element"></div>
-        <div className="logo-bg-element"></div>
-        <div className="logo-bg-element"></div>
-      </div>
+    <div className="min-h-screen w-full bg-[#F2F2F2] dark:bg-[#0D0D0D] flex items-center justify-center p-6">
 
-      {/* Main Content */}
-      <div className="min-h-screen flex items-center justify-center p-4 relative z-10">
-        {/* Forgot Password Card */}
-        <div className="login-card rounded-3xl p-10 w-full max-w-md">
-          {/* Back Button */}
-          <a
-            href="/login"
-            className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-8 transition-colors group"
-          >
-            <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
-            <span>Back to login</span>
-          </a>
+      {/* ── Floating card ── */}
+      <div
+        className="bg-white dark:bg-[#1A1A1D] rounded-3xl shadow-2xl w-full max-w-5xl flex overflow-hidden"
+        style={{ minHeight: '78vh' }}
+      >
 
-          {status === 'idle' || status === 'loading' ? (
-            <>
-              {/* Logo and Brand */}
-              <div className="flex items-center gap-3 mb-8">
-                <div className="relative">
-                  <img 
-                    src={myFile} 
-                    alt="B2A Logo" 
-                    className="w-12 h-12 object-contain drop-shadow-lg"
-                  />
-                </div>
-                <h1 className="text-2xl font-bold text-gray-900">B2A</h1>
+        {/* ══ LEFT — image ══ */}
+        <div className="hidden md:block w-1/2 flex-shrink-0 p-5">
+          <div className="w-full h-full rounded-2xl overflow-hidden">
+            <img src={pic} alt="" className="w-full h-full object-cover object-center" />
+          </div>
+        </div>
+
+        {/* ══ RIGHT — form panel ══ */}
+        <div className="flex-1 flex flex-col justify-between px-12 py-12 min-w-0">
+
+          {/* ── Top content ── */}
+          <div className="flex flex-col gap-9">
+
+            {/* Brand row */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-baseline gap-[3px]">
+                <span className="text-[1.15rem] font-black tracking-tight text-gray-900 dark:text-white">B2A</span>
+                <span className="text-[1.15rem] font-light tracking-tight text-gray-400 dark:text-gray-500">Platform</span>
               </div>
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 dark:border-white/10 text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
+                aria-label="Toggle theme"
+              >
+                {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+              </button>
+            </div>
 
-              {/* Header */}
-              <div className="mb-8">
-                <h2 className="text-3xl font-bold text-gray-900 mb-2">Forgot Password?</h2>
-                <p className="text-gray-600">
-                  Enter your email address and we'll send you a link to reset your password.
-                </p>
-              </div>
+            {/* Back link */}
+            <Link
+              to="/login"
+              className="inline-flex items-center gap-2 text-sm text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors group w-fit -mt-4"
+            >
+              <ArrowLeft size={15} className="group-hover:-translate-x-0.5 transition-transform" />
+              Back to sign in
+            </Link>
 
-              {/* Form */}
-              <form onSubmit={handleSubmit} className="space-y-5">
-                {/* Email Field */}
+            {/* ── Idle / Loading / Error state ── */}
+            {(status === 'idle' || status === 'loading' || status === 'error') && (
+              <div className="flex flex-col gap-8 -mt-2">
+
+                {/* Heading */}
                 <div>
-                  <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                    Email
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="email"
-                      id="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="your@email.com"
-                      className="input-focus w-full px-4 py-3 pl-12 border border-gray-200 rounded-xl outline-none transition-all duration-200 focus:border-gray-900 focus:ring-2 focus:ring-gray-900/10"
-                      required
-                      disabled={status === 'loading'}
-                    />
-                    <Mail className="w-5 h-5 text-gray-400 absolute left-4 top-1/2 transform -translate-y-1/2" />
+                  <h1 className="text-[2.2rem] font-extrabold tracking-tight leading-none text-gray-900 dark:text-white mb-2">
+                    Forgot password?
+                  </h1>
+                  <p className="text-sm text-gray-400 leading-relaxed">
+                    Enter your email and we'll send you a reset link.
+                  </p>
+                </div>
+
+                {/* Error */}
+                {status === 'error' && (
+                  <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 text-sm -mt-2">
+                    <AlertCircle size={15} className="shrink-0 mt-0.5" />
+                    {message}
                   </div>
+                )}
+
+                {/* Form */}
+                <form onSubmit={handleSubmit} className="flex flex-col gap-8">
+
+                  {/* Email */}
+                  <div className="flex flex-col gap-2">
+                    <label
+                      htmlFor="fp-email"
+                      className="text-[0.68rem] font-semibold uppercase tracking-[0.1em] text-gray-400"
+                    >
+                      Email
+                    </label>
+                    <div className="relative flex items-center">
+                      <input
+                        id="fp-email"
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="hello@example.com"
+                        required
+                        disabled={status === 'loading'}
+                        className="w-full bg-transparent border-b border-gray-200 dark:border-white/10 focus:border-gray-900 dark:focus:border-white py-2.5 pl-10 pr-4 outline-none text-gray-900 dark:text-white text-sm placeholder:text-gray-300 dark:placeholder:text-gray-600 transition-colors duration-200"
+                      />
+                      <Mail
+                        size={16}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 pointer-events-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Submit */}
+                  <button
+                    type="submit"
+                    disabled={status === 'loading'}
+                    className="w-full py-4 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-semibold tracking-wide hover:opacity-80 active:scale-[0.98] transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {status === 'loading' ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin opacity-60" />
+                        Sending…
+                      </span>
+                    ) : 'Send reset link'}
+                  </button>
+
+                </form>
+              </div>
+            )}
+
+            {/* ── Success state ── */}
+            {status === 'success' && (
+              <div className="flex flex-col gap-6 -mt-2">
+
+                <div className="w-12 h-12 rounded-xl bg-gray-100 dark:bg-white/5 flex items-center justify-center">
+                  <CheckCircle size={22} className="text-gray-900 dark:text-white" />
                 </div>
 
-                {/* Submit Button */}
-                <button
-                  type="submit"
-                  disabled={status === 'loading'}
-                  className="w-full bg-gray-900 text-white py-3.5 rounded-xl font-semibold hover:bg-gray-800 transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-                >
-                  {status === 'loading' ? 'Sending...' : 'Send Reset Link'}
-                </button>
-
-                {/* Back to Login Link */}
-                <p className="text-center text-sm text-gray-600">
-                  Remember your password?{' '}
-                  <a href="/login" className="text-gray-900 font-semibold hover:underline">
-                    Sign in
-                  </a>
-                </p>
-              </form>
-            </>
-          ) : status === 'success' ? (
-            <>
-              {/* Success State */}
-              <div className="text-center">
-                <div className="inline-flex items-center justify-center w-16 h-16 bg-green-100 rounded-full mb-6">
-                  <CheckCircle className="w-8 h-8 text-green-600" />
+                <div>
+                  <h1 className="text-[2.2rem] font-extrabold tracking-tight leading-none text-gray-900 dark:text-white mb-2">
+                    Check your email
+                  </h1>
+                  <p className="text-sm text-gray-400 leading-relaxed">{message}</p>
+                  <p className="text-xs text-gray-400 mt-1">Didn't receive it? Check your spam folder.</p>
                 </div>
-                
-                <h2 className="text-3xl font-bold text-gray-900 mb-3">Check Your Email</h2>
-                <p className="text-gray-600 mb-2">
-                  {message}
-                </p>
-                <p className="text-sm text-gray-500 mb-8">
-                  Didn't receive the email? Check your spam folder or try again.
-                </p>
 
-                <div className="space-y-3">
+                <div className="flex flex-col gap-3 mt-2">
                   <button
                     onClick={resetForm}
-                    className="w-full bg-gray-900 text-white py-3.5 rounded-xl font-semibold hover:bg-gray-800 transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-xl"
+                    className="w-full py-4 rounded-xl bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-semibold tracking-wide hover:opacity-80 active:scale-[0.98] transition-all duration-150"
                   >
-                    Try Another Email
+                    Try another email
                   </button>
-                  
-                  <a
-                    href="/login"
-                    className="block w-full text-center py-3.5 text-gray-700 font-semibold hover:text-gray-900 transition-colors"
+                  <Link
+                    to="/login"
+                    className="flex items-center justify-center gap-2 w-full py-3 text-sm text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
                   >
-                    Back to Login
-                  </a>
+                    <ArrowLeft size={14} />
+                    Back to sign in
+                  </Link>
                 </div>
-              </div>
-            </>
-          ) : (
-            <>
-              {/* Error State */}
-              <div className="text-center">
-                <div className="inline-flex items-center justify-center w-16 h-16 bg-red-100 rounded-full mb-6">
-                  <AlertCircle className="w-8 h-8 text-red-600" />
-                </div>
-                
-                <h2 className="text-3xl font-bold text-gray-900 mb-3">Email Not Found</h2>
-                <p className="text-gray-600 mb-8">
-                  {message}
-                </p>
 
-                <div className="space-y-3">
-                  <button
-                    onClick={resetForm}
-                    className="w-full bg-gray-900 text-white py-3.5 rounded-xl font-semibold hover:bg-gray-800 transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-xl"
-                  >
-                    Try Again
-                  </button>
-                  
-                  <a
-                    href="/signup"
-                    className="block w-full text-center py-3.5 text-gray-700 font-semibold hover:text-gray-900 transition-colors"
-                  >
-                    Create an Account
-                  </a>
-                </div>
               </div>
-            </>
-          )}
+            )}
+
+          </div>
+
+          {/* Footer */}
+          <p className="text-center text-xs text-gray-400 pt-6">
+            © B2A Platform {new Date().getFullYear()}
+          </p>
+
         </div>
       </div>
-    </>
+    </div>
   );
 };
 
