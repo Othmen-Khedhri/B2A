@@ -30,6 +30,12 @@ export interface IProject extends Document {
   responsiblePartnerName: string;
   assignedStaff: mongoose.Types.ObjectId[];
   alertsSent: AlertSent[];
+  // Excel import fields
+  externalId: string;
+  segment: string;
+  notes: string;
+  collaboratorsRaw: string;
+  validatedByManager: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -67,6 +73,12 @@ const ProjectSchema = new Schema<IProject>(
         sentAt: Date,
       },
     ],
+    // Excel import fields
+    externalId:          { type: String, default: "", trim: true },
+    segment:             { type: String, default: "", trim: true },
+    notes:               { type: String, default: "", trim: true },
+    collaboratorsRaw:    { type: String, default: "", trim: true },
+    validatedByManager:  { type: Boolean, default: false },
   },
   { timestamps: true }
 );

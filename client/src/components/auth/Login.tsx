@@ -1,35 +1,80 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, Sun, Moon, Mail, Lock } from 'lucide-react';
+import { Eye, EyeOff, Sun, Moon, Mail, Lock, AlertCircle, Clock } from 'lucide-react';
 import '../styles/Login.css';
 import pic from '../../assets/pic.png';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { useToast } from '../../context/ToastContext';
+
+// ── Simple field-level validation (no extra deps) ──────────────────────────
+interface FieldErrors { email?: string; password?: string; }
+
+function validate(email: string, password: string): FieldErrors {
+  const errors: FieldErrors = {};
+  if (!email.trim()) {
+    errors.email = "L'adresse email est requise.";
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    errors.email = "Format d'email invalide.";
+  }
+  if (!password) {
+    errors.password = "Le mot de passe est requis.";
+  } else if (password.length < 6) {
+    errors.password = "Minimum 6 caractères.";
+  }
+  return errors;
+}
+
+function FieldError({ msg }: { msg?: string }) {
+  if (!msg) return null;
+  return (
+    <p role="alert" className="flex items-center gap-1 text-xs text-red-500 mt-1 font-medium">
+      <AlertCircle size={12} className="flex-shrink-0" />
+      {msg}
+    </p>
+  );
+}
 
 const Login: React.FC = () => {
   const [email, setEmail]               = useState('');
   const [password, setPassword]         = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember]         = useState(false);
-  const [error, setError]               = useState('');
+  const [fieldErrors, setFieldErrors]   = useState<FieldErrors>({});
   const [isLoading, setIsLoading]       = useState(false);
+  const [expiredBanner, setExpiredBanner] = useState(false);
+
+  useEffect(() => {
+    const reason = sessionStorage.getItem('sessionExpiredReason');
+    if (reason === 'inactivity') {
+      setExpiredBanner(true);
+      sessionStorage.removeItem('sessionExpiredReason');
+    }
+  }, []);
 
   const { login }              = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const { toast }              = useToast();
   const navigate               = useNavigate();
 
   const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setError('');
+    const errors = validate(email, password);
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      return;
+    }
+    setFieldErrors({});
     setIsLoading(true);
     try {
       await login(email, password);
+      toast("Connexion réussie — bienvenue !", "success");
       navigate('/dashboard', { replace: true });
     } catch (err: unknown) {
-      setError(
+      const msg =
         (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        'Login failed. Please check your credentials.'
-      );
+        'Identifiants incorrects. Veuillez réessayer.';
+      toast(msg, "error");
     } finally {
       setIsLoading(false);
     }
@@ -47,7 +92,7 @@ const Login: React.FC = () => {
         {/* ══ LEFT — image ══ */}
         <div className="hidden md:block w-1/2 flex-shrink-0 p-5">
           <div className="w-full h-full rounded-2xl overflow-hidden">
-            <img src={pic} alt="" className="w-full h-full object-cover object-center" />
+            <img src={pic} alt="" aria-hidden="true" className="w-full h-full object-cover object-center" />
           </div>
         </div>
 
@@ -57,22 +102,17 @@ const Login: React.FC = () => {
           {/* ── Top content ── */}
           <div className="flex flex-col gap-9">
 
-            {/* Brand row — no logo image, just styled text + theme toggle */}
+            {/* Brand row */}
             <div className="flex items-center justify-between">
               <div className="flex items-baseline gap-[3px]">
-                <span className="text-[1.15rem] font-black tracking-tight text-gray-900 dark:text-white">
-                  B2A
-                </span>
-                <span className="text-[1.15rem] font-light tracking-tight text-gray-400 dark:text-gray-500">
-                  Platform
-                </span>
+                <span className="text-[1.15rem] font-black tracking-tight text-gray-900 dark:text-white">B2A</span>
+                <span className="text-[1.15rem] font-light tracking-tight text-gray-400 dark:text-gray-500">Platform</span>
               </div>
-
               <button
                 type="button"
                 onClick={toggleTheme}
-                className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 dark:border-white/10 text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
-                aria-label="Toggle theme"
+                className="touch-target rounded-lg border border-gray-200 dark:border-white/10 text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
+                aria-label={theme === 'dark' ? 'Activer le mode clair' : 'Activer le mode sombre'}
               >
                 {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
               </button>
@@ -81,23 +121,26 @@ const Login: React.FC = () => {
             {/* Heading */}
             <div>
               <h1 className="text-[2.2rem] font-extrabold tracking-tight leading-none text-gray-900 dark:text-white mb-2">
-                Welcome Back!
+                Bienvenue !
               </h1>
-              <p className="text-sm text-gray-400">Enter Your Details Below</p>
+              <p className="text-sm text-gray-400">Saisissez vos identifiants pour accéder à la plateforme.</p>
             </div>
 
-            {/* Error */}
-            {error && (
-              <div className="px-4 py-3 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 text-sm">
-                {error}
+            {/* Inactivity expiry banner */}
+            {expiredBanner && (
+              <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40">
+                <Clock size={16} className="shrink-0 mt-0.5 text-amber-500" />
+                <p className="text-sm text-amber-700 dark:text-amber-400 font-medium">
+                  Session expirée pour cause d'inactivité. Veuillez vous reconnecter.
+                </p>
               </div>
             )}
 
             {/* Form */}
-            <form onSubmit={handleSubmit} className="flex flex-col gap-8">
+            <form onSubmit={handleSubmit} className="flex flex-col gap-6" noValidate>
 
               {/* Email */}
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1.5">
                 <label
                   htmlFor="login-email"
                   className="text-[0.68rem] font-semibold uppercase tracking-[0.1em] text-gray-400"
@@ -109,52 +152,50 @@ const Login: React.FC = () => {
                     id="login-email"
                     type="email"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e) => { setEmail(e.target.value); if (fieldErrors.email) setFieldErrors(p => ({ ...p, email: undefined })); }}
                     placeholder="hello@example.com"
-                    required
                     disabled={isLoading}
-                    className="w-full bg-transparent border-b border-gray-200 dark:border-white/10 focus:border-gray-900 dark:focus:border-white py-2.5 pl-10 pr-12 outline-none font-mono font-medium text-base text-gray-900 dark:text-white placeholder:font-normal placeholder:text-sm placeholder:text-gray-300 dark:placeholder:text-gray-600 transition-colors duration-200"
+                    aria-invalid={!!fieldErrors.email}
+                    aria-describedby={fieldErrors.email ? "email-error" : undefined}
+                    className={`w-full bg-transparent border-b py-2.5 pl-10 pr-4 outline-none font-mono font-medium text-base text-gray-900 dark:text-white placeholder:font-normal placeholder:text-sm placeholder:text-gray-300 dark:placeholder:text-gray-600 transition-colors duration-200 ${fieldErrors.email ? 'border-red-400 dark:border-red-500' : 'border-gray-200 dark:border-white/10 focus:border-gray-900 dark:focus:border-white'}`}
                   />
-                  <Mail
-                    size={16}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 hover:scale-105 transition-transform duration-200 pointer-events-none"
-                  />
+                  <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 pointer-events-none" />
                 </div>
+                <span id="email-error"><FieldError msg={fieldErrors.email} /></span>
               </div>
 
               {/* Password */}
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1.5">
                 <label
                   htmlFor="login-password"
                   className="text-[0.68rem] font-semibold uppercase tracking-[0.1em] text-gray-400"
                 >
-                  Password
+                  Mot de passe
                 </label>
                 <div className="relative flex items-center">
                   <input
                     id="login-password"
                     type={showPassword ? 'text' : 'password'}
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => { setPassword(e.target.value); if (fieldErrors.password) setFieldErrors(p => ({ ...p, password: undefined })); }}
                     placeholder="••••••••"
-                    required
                     disabled={isLoading}
-                    className="w-full bg-transparent border-b border-gray-200 dark:border-white/10 focus:border-gray-900 dark:focus:border-white py-2.5 pl-10 pr-12 outline-none font-mono font-medium text-base text-gray-900 dark:text-white placeholder:font-normal placeholder:text-sm placeholder:text-gray-300 dark:placeholder:text-gray-600 transition-colors duration-200"
+                    aria-invalid={!!fieldErrors.password}
+                    aria-describedby={fieldErrors.password ? "password-error" : undefined}
+                    className={`w-full bg-transparent border-b py-2.5 pl-10 pr-12 outline-none font-mono font-medium text-base text-gray-900 dark:text-white placeholder:font-normal placeholder:text-sm placeholder:text-gray-300 dark:placeholder:text-gray-600 transition-colors duration-200 ${fieldErrors.password ? 'border-red-400 dark:border-red-500' : 'border-gray-200 dark:border-white/10 focus:border-gray-900 dark:focus:border-white'}`}
                   />
-                  <Lock
-                    size={16}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 hover:scale-105 transition-transform duration-200 pointer-events-none"
-                  />
-                  {/* Eye toggle */}
+                  <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 pointer-events-none" />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 hover:text-gray-900 dark:hover:text-white hover:scale-105 transition-all duration-200"
+                    aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 hover:text-gray-900 dark:hover:text-white transition-colors"
                     tabIndex={-1}
                   >
                     {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
+                <span id="password-error"><FieldError msg={fieldErrors.password} /></span>
               </div>
 
               {/* Remember me + Forgot password */}
@@ -166,13 +207,13 @@ const Login: React.FC = () => {
                     onChange={(e) => setRemember(e.target.checked)}
                     className="w-4 h-4 accent-gray-900 dark:accent-white cursor-pointer"
                   />
-                  Remember me
+                  Se souvenir de moi
                 </label>
                 <Link
                   to="/forgot-password"
                   className="text-sm text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"
                 >
-                  Forgot password?
+                  Mot de passe oublié ?
                 </Link>
               </div>
 
@@ -185,9 +226,9 @@ const Login: React.FC = () => {
                 {isLoading ? (
                   <span className="flex items-center justify-center gap-2">
                     <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin opacity-60" />
-                    Signing in…
+                    Connexion…
                   </span>
-                ) : 'Log in'}
+                ) : 'Se connecter'}
               </button>
 
             </form>
@@ -197,7 +238,6 @@ const Login: React.FC = () => {
           <p className="text-center text-xs text-gray-400 pt-6">
             © B2A Platform {new Date().getFullYear()}
           </p>
-
         </div>
       </div>
     </div>
@@ -205,4 +245,3 @@ const Login: React.FC = () => {
 };
 
 export default Login;
-

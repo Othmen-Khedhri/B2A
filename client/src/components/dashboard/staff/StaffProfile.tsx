@@ -1,12 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft, Pencil, Trash2, Mail, Building2, Briefcase,
   Calendar, FileText, User, MapPin, Heart, GraduationCap,
-  Clock, TrendingUp, Save, X, BadgeCheck,
+  Clock, TrendingUp, Save, X, BadgeCheck, Camera,
 } from "lucide-react";
 import api from "../../../services/api";
 import { useLanguage } from "../../../context/LanguageContext";
+import { useAuth } from "../../../context/AuthContext";
 
 interface StaffMember {
   _id: string;
@@ -34,6 +36,7 @@ interface StaffMember {
   positionCategory: string;
   coutHoraire: number;
   expStartDate?: string;
+  avatarUrl?: string;
   createdAt: string;
 }
 
@@ -132,6 +135,7 @@ const StaffProfile = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { t } = useLanguage();
+  const { user: currentUser } = useAuth();
 
   const [member, setMember] = useState<StaffMember | null>(null);
   const [loading, setLoading] = useState(true);
@@ -140,6 +144,8 @@ const StaffProfile = () => {
   const [form, setForm] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const fetch = async () => {
     setLoading(true);
@@ -209,6 +215,28 @@ const StaffProfile = () => {
     } finally { setSaving(false); }
   };
 
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !member) return;
+    if (file.size > 500 * 1024) {
+      alert("Image must be under 500 KB.");
+      e.target.value = "";
+      return;
+    }
+    setAvatarUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("avatar", file);
+      const res = await api.post<{ avatarUrl: string }>(`/staff/${member._id}/avatar`, fd);
+      setMember((m) => m ? { ...m, avatarUrl: res.data.avatarUrl } : m);
+    } catch {
+      alert("Upload failed. Image must be under 500 KB.");
+    } finally {
+      setAvatarUploading(false);
+      e.target.value = "";
+    }
+  };
+
   const handleDelete = async () => {
     if (!member) return;
     try {
@@ -232,8 +260,11 @@ const StaffProfile = () => {
     </div>
   );
 
-  const isWorker = member.role === "worker";
-  const yrsB2A   = yearsAgo(member.hireDate);
+  const isWorker  = member.role === "worker";
+  const yrsB2A    = yearsAgo(member.hireDate);
+  const isSelf       = member._id === currentUser?.id;
+  const isRootAdmin  = currentUser?.email?.toLowerCase() === "admin@b2a.com";
+  const canDelete    = !isSelf && (member.role !== "admin" || isRootAdmin);
   const age      = yearsAgo(member.dateOfBirth);
 
   return (
@@ -250,8 +281,12 @@ const StaffProfile = () => {
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-[#0D0D0D] hover:bg-[#9E9EA3]/20 text-white transition">
             <Pencil className="w-4 h-4" /> {t("common.edit")}
           </button>
-          <button onClick={() => setShowDelete(true)}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border border-red-200 dark:border-red-800 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition">
+          <button
+            onClick={() => canDelete && setShowDelete(true)}
+            disabled={!canDelete}
+            title={!canDelete ? "This account cannot be deleted" : undefined}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border transition ${canDelete ? "border-red-200 dark:border-red-800 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20" : "border-[#CACAC4] dark:border-white/[0.06] text-[#9E9EA3] opacity-40 cursor-not-allowed"}`}
+          >
             <Trash2 className="w-4 h-4" /> {t("common.delete")}
           </button>
         </div>
@@ -261,8 +296,39 @@ const StaffProfile = () => {
       <div className="bg-white dark:bg-[#2A2A2E] rounded-lg border border-[#CACAC4] dark:border-white/[0.06] overflow-hidden">
         {/* Banner with avatar pinned to bottom-left */}
         <div className={`relative h-32 bg-gradient-to-r ${avatarColor[member.role] ?? avatarColor.collaborator}`}>
-          <div className={`absolute -bottom-10 left-8 w-20 h-20 rounded-lg border-4 border-white flex items-center justify-center text-white font-bold text-2xl bg-gradient-to-br ${avatarColor[member.role] ?? avatarColor.collaborator} shadow-lg`}>
-            {initials(member.name)}
+          <div className="absolute -bottom-10 left-8">
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleAvatarChange}
+            />
+            <button
+              onClick={() => avatarInputRef.current?.click()}
+              className="relative group w-20 h-20 rounded-lg border-4 border-white shadow-lg overflow-hidden block"
+              title="Click to change photo"
+            >
+              {member.avatarUrl ? (
+                <img
+                  src={`http://localhost:5000${member.avatarUrl}`}
+                  alt={member.name}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className={`w-full h-full flex items-center justify-center font-bold text-2xl text-white bg-gradient-to-br ${avatarColor[member.role] ?? avatarColor.collaborator}`}>
+                  {initials(member.name)}
+                </div>
+              )}
+              {/* Hover overlay */}
+              <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                {avatarUploading ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Camera className="w-5 h-5 text-white" />
+                )}
+              </div>
+            </button>
           </div>
         </div>
 
@@ -377,7 +443,7 @@ const StaffProfile = () => {
       </div>
 
       {/* ── Edit Modal ── */}
-      {showEdit && (
+      {showEdit && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowEdit(false)} />
           <div className="relative bg-white dark:bg-[#2A2A2E] rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto z-10">
@@ -467,11 +533,12 @@ const StaffProfile = () => {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* ── Delete Confirm ── */}
-      {showDelete && (
+      {showDelete && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowDelete(false)} />
           <div className="relative bg-white dark:bg-[#2A2A2E] rounded-lg shadow-2xl w-full max-w-md p-8 z-10">
@@ -489,7 +556,8 @@ const StaffProfile = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

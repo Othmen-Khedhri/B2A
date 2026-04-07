@@ -172,7 +172,7 @@ const parseBudgets = async (rows: Record<string, unknown>[], importId: mongoose.
           responsiblePartnerName: partnerName,
           type,
         },
-        { upsert: true, new: true }
+        { upsert: true, returnDocument: "after" }
       );
       count++;
     } catch (e) {

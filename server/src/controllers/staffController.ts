@@ -1,6 +1,8 @@
+import path from "path";
+import fs from "fs";
 import { Request, Response } from "express";
-import bcrypt from "bcryptjs";
 import Expert from "../models/Expert";
+import { logAudit, diffChanges } from "../utils/auditLogger";
 
 export const createStaff = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -29,6 +31,11 @@ export const createStaff = async (req: Request, res: Response): Promise<void> =>
       cin, cnss, gender, dateOfBirth, placeOfBirth, address, civilStatus, children,
       hireDate, contractType, contractEndDate, department, positionCategory, expStartDate,
     });
+    logAudit(req, {
+      action: "CREATE", resource: "expert",
+      resourceId: expert._id.toString(), resourceName: expert.name,
+      description: `Created staff member "${expert.name}" (${expert.role})`,
+    });
     res.status(201).json(expert);
   } catch (err) {
     console.error("createStaff error:", err);
@@ -38,11 +45,35 @@ export const createStaff = async (req: Request, res: Response): Promise<void> =>
 
 export const deleteStaff = async (req: Request, res: Response): Promise<void> => {
   try {
-    const expert = await Expert.findByIdAndDelete(req.params.id);
+    const expert = await Expert.findById(req.params.id);
     if (!expert) {
       res.status(404).json({ message: "Staff member not found" });
       return;
     }
+
+    const requester   = (req as import("../middleware/authMiddleware").AuthRequest).user;
+    const requesterId = requester?.id;
+    const requesterEmail = requester?.email?.toLowerCase();
+    const ROOT_ADMIN  = "admin@b2a.com";
+
+    // Cannot delete yourself
+    if (requesterId && expert._id.toString() === requesterId) {
+      res.status(403).json({ message: "You cannot delete your own account." });
+      return;
+    }
+
+    // Only admin@b2a.com can delete other admin accounts
+    if (expert.role === "admin" && requesterEmail !== ROOT_ADMIN) {
+      res.status(403).json({ message: "Only the root admin can delete admin accounts." });
+      return;
+    }
+
+    await expert.deleteOne();
+    logAudit(req, {
+      action: "DELETE", resource: "expert",
+      resourceId: expert._id.toString(), resourceName: expert.name,
+      description: `Deleted staff member "${expert.name}"`,
+    });
     res.json({ message: "Staff member deleted" });
   } catch (err) {
     console.error("deleteStaff error:", err);
@@ -82,6 +113,7 @@ export const getStaffById = async (req: Request, res: Response): Promise<void> =
 
 export const updateStaff = async (req: Request, res: Response): Promise<void> => {
   try {
+    const before = await Expert.findById(req.params.id).lean();
     const expert = await Expert.findById(req.params.id).select("+password");
     if (!expert) {
       res.status(404).json({ message: "Staff member not found" });
@@ -91,16 +123,53 @@ export const updateStaff = async (req: Request, res: Response): Promise<void> =>
     const { password, ...rest } = req.body;
     Object.assign(expert, rest);
 
-    // Hash new password through the pre-save hook
+    // Assign raw — the pre-save hook in Expert.ts will hash it once
     if (password && password.length >= 8) {
-      const salt = await bcrypt.genSalt(12);
-      expert.password = await bcrypt.hash(password, salt);
+      expert.password = password;
     }
 
     await expert.save();
+    logAudit(req, {
+      action: "UPDATE", resource: "expert",
+      resourceId: expert._id.toString(), resourceName: expert.name,
+      description: `Updated staff member "${expert.name}"`,
+      changes: before ? diffChanges(before as unknown as Record<string, unknown>, rest) : {},
+    });
     res.json(expert);
   } catch (err) {
     console.error("updateStaff error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+export const uploadAvatar = async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!req.file) {
+      res.status(400).json({ message: "No file uploaded" });
+      return;
+    }
+
+    const expert = await Expert.findById(req.params.id);
+    if (!expert) {
+      // Remove the just-uploaded file if expert not found
+      fs.unlink(req.file.path, () => {});
+      res.status(404).json({ message: "Staff member not found" });
+      return;
+    }
+
+    // Delete old avatar file if it exists
+    if (expert.avatarUrl) {
+      const oldPath = path.join(process.cwd(), "uploads", path.basename(expert.avatarUrl));
+      fs.unlink(oldPath, () => {}); // ignore errors (file may not exist)
+    }
+
+    const avatarUrl = `/uploads/avatars/${req.file.filename}`;
+    expert.avatarUrl = avatarUrl;
+    await expert.save();
+
+    res.json({ avatarUrl });
+  } catch (err) {
+    console.error("uploadAvatar error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };

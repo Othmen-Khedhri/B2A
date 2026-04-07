@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import * as XLSX from "xlsx";
 import Client from "../models/Client";
+import { logAudit, diffChanges } from "../utils/auditLogger";
 
 export const getClients = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -32,6 +33,11 @@ export const createClient = async (req: Request, res: Response): Promise<void> =
     const existing = await Client.findOne({ name: name.trim() });
     if (existing) { res.status(409).json({ message: "A client with this name already exists" }); return; }
     const client = await Client.create({ name, sector, phone, email, address, notes });
+    logAudit(req, {
+      action: "CREATE", resource: "client",
+      resourceId: client._id.toString(), resourceName: client.name,
+      description: `Created client "${client.name}"`,
+    });
     res.status(201).json(client);
   } catch (err) {
     console.error("createClient error:", err);
@@ -41,8 +47,15 @@ export const createClient = async (req: Request, res: Response): Promise<void> =
 
 export const updateClient = async (req: Request, res: Response): Promise<void> => {
   try {
+    const before = await Client.findById(req.params.id).lean();
     const client = await Client.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!client) { res.status(404).json({ message: "Client not found" }); return; }
+    logAudit(req, {
+      action: "UPDATE", resource: "client",
+      resourceId: client._id.toString(), resourceName: client.name,
+      description: `Updated client "${client.name}"`,
+      changes: before ? diffChanges(before as unknown as Record<string, unknown>, req.body) : {},
+    });
     res.json(client);
   } catch (err) {
     console.error("updateClient error:", err);
@@ -54,6 +67,11 @@ export const deleteClient = async (req: Request, res: Response): Promise<void> =
   try {
     const client = await Client.findByIdAndDelete(req.params.id);
     if (!client) { res.status(404).json({ message: "Client not found" }); return; }
+    logAudit(req, {
+      action: "DELETE", resource: "client",
+      resourceId: client._id.toString(), resourceName: client.name,
+      description: `Deleted client "${client.name}"`,
+    });
     res.json({ message: "Client deleted" });
   } catch (err) {
     console.error("deleteClient error:", err);
@@ -117,6 +135,11 @@ export const importClients = async (req: Request, res: Response): Promise<void> 
       }
     }
 
+    logAudit(req, {
+      action: "IMPORT", resource: "client",
+      description: `Imported clients from Excel: ${imported} new, ${updated} updated, ${skipped} skipped`,
+      metadata: { imported, updated, skipped, errors },
+    });
     res.json({ imported, updated, skipped, errors });
   } catch (err) {
     console.error("importClients error:", err);

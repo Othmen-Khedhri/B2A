@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import {
   Search, AlertTriangle, Plus, Pencil, Trash2, X, Save, ArrowRight,
@@ -6,6 +7,7 @@ import {
 } from "lucide-react";
 import api from "../../../services/api";
 import { useLanguage } from "../../../context/LanguageContext";
+import { useAuth } from "../../../context/AuthContext";
 
 type Tab = "collaborator" | "manager" | "admin" | "worker";
 
@@ -36,6 +38,7 @@ interface StaffMember {
   department: string;
   positionCategory: string;
   expStartDate?: string;
+  avatarUrl?: string;
 }
 
 const EMPTY_FORM = {
@@ -102,21 +105,23 @@ const LoadBar
   );
 };
 
-const avatarGradient: Record<string, string> = {
-  admin:        "bg-[#E2E2DC] dark:bg-[#2A2A2E]",
-  manager:      "bg-[#E2E2DC] dark:bg-[#2A2A2E]",
-  collaborator: "bg-[#E2E2DC] dark:bg-[#2A2A2E]",
-  worker:       "bg-[#E2E2DC] dark:bg-[#2A2A2E]",
+// Role-based accent colors
+const roleStyle: Record<string, { avatar: string; text: string; strip: string; iconBg: string; iconText: string; tabActive: string; tabText: string }> = {
+  admin:        { avatar: "bg-violet-600", text: "text-white",       strip: "from-violet-500 to-purple-400",  iconBg: "bg-violet-100 dark:bg-violet-900/30", iconText: "text-violet-600 dark:text-violet-400", tabActive: "bg-violet-600", tabText: "text-white"       },
+  manager:      { avatar: "bg-[#FFD600]",  text: "text-[#0D0D0D]",  strip: "from-[#FFD600] to-amber-300",    iconBg: "bg-amber-100 dark:bg-amber-900/30",   iconText: "text-amber-600 dark:text-amber-400",  tabActive: "bg-[#FFD600]",  tabText: "text-[#0D0D0D]"  },
+  collaborator: { avatar: "bg-sky-600",    text: "text-white",       strip: "from-sky-500 to-blue-400",       iconBg: "bg-sky-100 dark:bg-sky-900/30",       iconText: "text-sky-600 dark:text-sky-400",      tabActive: "bg-sky-600",    tabText: "text-white"       },
+  worker:       { avatar: "bg-teal-600",   text: "text-white",       strip: "from-teal-500 to-emerald-400",   iconBg: "bg-teal-100 dark:bg-teal-900/30",     iconText: "text-teal-600 dark:text-teal-400",    tabActive: "bg-teal-600",   tabText: "text-white"       },
 };
 
 /* ── Staff Card ─────────────────────────────────────────────────────────── */
 const StaffCard = ({
-  member, isWorker, onEdit, onDelete,
+  member, isWorker, onEdit, onDelete, canDelete,
 }: {
   member: StaffMember;
   isWorker?: boolean;
   onEdit: (m: StaffMember) => void;
   onDelete: (m: StaffMember) => void;
+  canDelete: boolean;
 }) => {
   const { t } = useLanguage();
   const navigate = useNavigate();
@@ -124,16 +129,24 @@ const StaffCard = ({
   const jobTitle = member.specializations?.[0] || "";
 
   return (
-    <div className="bg-white dark:bg-[#2A2A2E] rounded-lg border border-[#CACAC4] dark:border-white/[0.06] shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col">
+    <div className="bg-white dark:bg-[#2A2A2E] rounded-2xl border border-[#CACAC4] dark:border-white/[0.06] shadow-sm hover:shadow-md hover:-translate-y-1 transition-all cursor-pointer overflow-hidden flex flex-col">
       {/* Colored top strip */}
-      <div className={`h-1.5 bg-gradient-to-r ${avatarGradient[member.role] ?? avatarGradient.collaborator}`} />
+      <div className={`h-1.5 bg-gradient-to-r ${roleStyle[member.role]?.strip ?? roleStyle.collaborator.strip}`} />
 
       <div className="p-6 flex-1 space-y-5">
         {/* Header: avatar + name + badges */}
         <div className="flex items-start gap-4">
-          <div className={`w-14 h-14 rounded-lg flex items-center justify-center font-bold text-lg text-white shrink-0 bg-gradient-to-br ${avatarGradient[member.role] ?? avatarGradient.collaborator}`}>
-            {initials}
-          </div>
+          {member.avatarUrl ? (
+            <img
+              src={`http://localhost:5000${member.avatarUrl}`}
+              alt={member.name}
+              className="w-14 h-14 rounded-2xl object-cover shrink-0"
+            />
+          ) : (
+            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-bold text-lg shrink-0 ${roleStyle[member.role]?.avatar ?? roleStyle.collaborator.avatar} ${roleStyle[member.role]?.text ?? roleStyle.collaborator.text}`}>
+              {initials}
+            </div>
+          )}
           <div className="flex-1 min-w-0">
             <p className="font-bold text-[#0D0D0D] dark:text-white text-base truncate">{member.name}</p>
             {jobTitle && <p className="text-sm text-[#6B6B6F] dark:text-[#9E9EA3] truncate mt-0.5 font-medium">{jobTitle}</p>}
@@ -163,40 +176,45 @@ const StaffCard = ({
         </div>
 
         {/* Info rows */}
-        <div className="space-y-2.5">
-          {member.department && (
-            <div className="flex items-center gap-3">
-              <div className="w-7 h-7 rounded-lg bg-black/[0.04] dark:bg-white/[0.06] dark:bg-[#9E9EA3]/30 flex items-center justify-center shrink-0">
-                <Building2 className="w-4 h-4 text-[#6B6B6F] dark:text-[#9E9EA3]" />
-              </div>
-              <span className="text-sm font-medium text-[#6B6B6F] dark:text-[#9E9EA3] truncate">{member.department}</span>
+        {(() => {
+          const rs = roleStyle[member.role] ?? roleStyle.collaborator;
+          return (
+            <div className="space-y-2.5">
+              {member.department && (
+                <div className="flex items-center gap-3">
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${rs.iconBg}`}>
+                    <Building2 className={`w-4 h-4 ${rs.iconText}`} />
+                  </div>
+                  <span className="text-sm font-medium text-[#6B6B6F] dark:text-[#9E9EA3] truncate">{member.department}</span>
+                </div>
+              )}
+              {member.email && !isWorker && (
+                <div className="flex items-center gap-3">
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${rs.iconBg}`}>
+                    <Mail className={`w-4 h-4 ${rs.iconText}`} />
+                  </div>
+                  <span className="text-sm text-[#6B6B6F] dark:text-[#9E9EA3] truncate">{member.email}</span>
+                </div>
+              )}
+              {member.hireDate && (
+                <div className="flex items-center gap-3">
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${rs.iconBg}`}>
+                    <Calendar className={`w-4 h-4 ${rs.iconText}`} />
+                  </div>
+                  <span className="text-sm text-[#6B6B6F] dark:text-[#9E9EA3]">{t("staff.card.hired")}: {formatDate(member.hireDate)}</span>
+                </div>
+              )}
+              {isWorker && (
+                <div className="flex items-center gap-3">
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${rs.iconBg}`}>
+                    <Wrench className={`w-4 h-4 ${rs.iconText}`} />
+                  </div>
+                  <span className="text-sm italic text-[#9E9EA3]">{t("staff.support_staff")}</span>
+                </div>
+              )}
             </div>
-          )}
-          {member.email && !isWorker && (
-            <div className="flex items-center gap-3">
-              <div className="w-7 h-7 rounded-lg bg-black/[0.04] dark:bg-white/[0.06] dark:bg-[#9E9EA3]/30 flex items-center justify-center shrink-0">
-                <Mail className="w-4 h-4 text-[#9E9EA3]" />
-              </div>
-              <span className="text-sm text-[#6B6B6F] dark:text-[#9E9EA3] truncate">{member.email}</span>
-            </div>
-          )}
-          {member.hireDate && (
-            <div className="flex items-center gap-3">
-              <div className="w-7 h-7 rounded-lg bg-black/[0.04] dark:bg-white/[0.06] dark:bg-[#9E9EA3]/30 flex items-center justify-center shrink-0">
-                <Calendar className="w-4 h-4 text-[#9E9EA3]" />
-              </div>
-              <span className="text-sm text-[#6B6B6F] dark:text-[#9E9EA3]">{t("staff.card.hired")}: {formatDate(member.hireDate)}</span>
-            </div>
-          )}
-          {isWorker && (
-            <div className="flex items-center gap-3">
-              <div className="w-7 h-7 rounded-lg bg-teal-50 dark:bg-teal-900/30 flex items-center justify-center shrink-0">
-                <Wrench className="w-4 h-4 text-teal-500" />
-              </div>
-              <span className="text-sm italic text-[#9E9EA3]">{t("staff.support_staff")}</span>
-            </div>
-          )}
-        </div>
+          );
+        })()}
 
         {!isWorker && (
           <div className="space-y-2">
@@ -219,8 +237,12 @@ const StaffCard = ({
           className="flex items-center justify-center gap-1.5 py-3 text-sm font-medium text-[#6B6B6F] dark:text-[#9E9EA3] hover:bg-black/[0.04] dark:bg-white/[0.04] transition-colors border-x border-[#CACAC4] dark:border-white/[0.06]">
           <ArrowRight className="w-4 h-4" /> {t("staff.card.profile")}
         </button>
-        <button onClick={() => onDelete(member)}
-          className="flex items-center justify-center gap-1.5 py-3 text-sm font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+        <button
+          onClick={() => canDelete && onDelete(member)}
+          disabled={!canDelete}
+          title={!canDelete ? "This account cannot be deleted" : undefined}
+          className={`flex items-center justify-center gap-1.5 py-3 text-sm font-medium transition-colors ${canDelete ? "text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20" : "text-[#9E9EA3] cursor-not-allowed opacity-40"}`}
+        >
           <Trash2 className="w-4 h-4" /> {t("common.delete")}
         </button>
       </div>
@@ -229,20 +251,22 @@ const StaffCard = ({
 };
 
 /* ── Modal wrapper ───────────────────────────────────────────────────────── */
-const Modal = ({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) => (
-  <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-    <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-    <div className="relative bg-white dark:bg-[#2A2A2E] rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto z-10">
-      <div className="sticky top-0 bg-white dark:bg-[#2A2A2E] flex items-center justify-between px-8 pt-7 pb-4 border-b border-[#CACAC4] dark:border-white/[0.06] z-10">
-        <h3 className="text-lg font-bold text-[#0D0D0D] dark:text-white">{title}</h3>
-        <button onClick={onClose} className="text-[#9E9EA3] hover:text-[#9E9EA3] dark:hover:text-white transition-colors">
-          <X className="w-5 h-5" />
-        </button>
+const Modal = ({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) =>
+  createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white dark:bg-[#2A2A2E] rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto z-10">
+        <div className="sticky top-0 bg-white dark:bg-[#2A2A2E] flex items-center justify-between px-8 pt-7 pb-4 border-b border-[#CACAC4] dark:border-white/[0.06] z-10">
+          <h3 className="text-lg font-bold text-[#0D0D0D] dark:text-white">{title}</h3>
+          <button onClick={onClose} className="text-[#9E9EA3] hover:text-[#9E9EA3] dark:hover:text-white transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="px-8 pb-8 pt-5">{children}</div>
       </div>
-      <div className="px-8 pb-8 pt-5">{children}</div>
-    </div>
-  </div>
-);
+    </div>,
+    document.body
+  );
 
 /* ── Section header ──────────────────────────────────────────────────────── */
 const SectionTitle = ({ label }: { label: string }) => (
@@ -258,6 +282,7 @@ const labelCls = "block text-sm font-medium text-[#6B6B6F] dark:text-[#9E9EA3] m
 /* ── Main Component ──────────────────────────────────────────────────────── */
 const Staff = () => {
   const { t } = useLanguage();
+  const { user: currentUser } = useAuth();
   const [tab, setTab] = useState<Tab>("collaborator");
   const [members, setMembers] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(true);
@@ -544,13 +569,16 @@ const Staff = () => {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex gap-1 bg-white dark:bg-[#2A2A2E] p-1 rounded-lg border border-[#CACAC4] dark:border-white/[0.06]">
-          {TABS.map(({ key, tKey }) => (
-            <button key={key} onClick={() => setTab(key)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all
-                ${tab === key ? "bg-[#0D0D0D] dark:bg-black/[0.04] dark:bg-white/[0.06] text-white dark:text-[#0D0D0D] shadow-sm" : "text-[#6B6B6F] dark:text-[#9E9EA3] hover:text-[#0D0D0D] dark:hover:text-white"}`}>
-              {t(tKey)}
-            </button>
-          ))}
+          {TABS.map(({ key, tKey }) => {
+            const rs = roleStyle[key] ?? roleStyle.collaborator;
+            return (
+              <button key={key} onClick={() => setTab(key)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all
+                  ${tab === key ? `${rs.tabActive} ${rs.tabText} shadow-sm` : "text-[#6B6B6F] dark:text-[#9E9EA3] hover:text-[#0D0D0D] dark:hover:text-white"}`}>
+                {t(tKey)}
+              </button>
+            );
+          })}
         </div>
         <button onClick={openAdd}
           className="flex items-center gap-2 px-4 py-2 bg-[#0D0D0D] hover:bg-[#9E9EA3]/20 text-white text-sm font-semibold rounded-lg transition-colors shadow-sm">
@@ -577,10 +605,15 @@ const Staff = () => {
           <button onClick={openAdd} className="mt-3 text-[#6B6B6F] dark:text-[#9E9EA3] text-sm hover:underline">{t("staff.add_one")}</button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {members.map((m) => (
-            <StaffCard key={m._id} member={m} isWorker={tab === "worker"} onEdit={openEdit} onDelete={setDeletingMember} />
-          ))}
+        <div className="stagger-children grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {members.map((m) => {
+            const isSelf       = m._id === currentUser?.id;
+            const isRootAdmin  = currentUser?.email?.toLowerCase() === "admin@b2a.com";
+            const canDelete    = !isSelf && (m.role !== "admin" || isRootAdmin);
+            return (
+              <StaffCard key={m._id} member={m} isWorker={tab === "worker"} onEdit={openEdit} onDelete={setDeletingMember} canDelete={canDelete} />
+            );
+          })}
         </div>
       )}
 

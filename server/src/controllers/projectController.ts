@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import Project from "../models/Project";
 import TimeEntry from "../models/TimeEntry";
+import { logAudit, diffChanges } from "../utils/auditLogger";
 
 export const getProjects = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -65,6 +66,11 @@ export const getProjectById = async (req: Request, res: Response): Promise<void>
 export const createProject = async (req: Request, res: Response): Promise<void> => {
   try {
     const project = await Project.create(req.body);
+    logAudit(req, {
+      action: "CREATE", resource: "project",
+      resourceId: project._id.toString(), resourceName: project.name,
+      description: `Created project "${project.name}"`,
+    });
     res.status(201).json(project);
   } catch (err) {
     console.error("createProject error:", err);
@@ -74,11 +80,18 @@ export const createProject = async (req: Request, res: Response): Promise<void> 
 
 export const updateProject = async (req: Request, res: Response): Promise<void> => {
   try {
+    const before = await Project.findById(req.params.id).lean();
     const project = await Project.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!project) {
       res.status(404).json({ message: "Project not found" });
       return;
     }
+    logAudit(req, {
+      action: "UPDATE", resource: "project",
+      resourceId: project._id.toString(), resourceName: project.name,
+      description: `Updated project "${project.name}"`,
+      changes: before ? diffChanges(before as unknown as Record<string, unknown>, req.body) : {},
+    });
     res.json(project);
   } catch (err) {
     console.error("updateProject error:", err);
@@ -93,6 +106,11 @@ export const deleteProject = async (req: Request, res: Response): Promise<void> 
       res.status(404).json({ message: "Project not found" });
       return;
     }
+    logAudit(req, {
+      action: "DELETE", resource: "project",
+      resourceId: project._id.toString(), resourceName: project.name,
+      description: `Deleted project "${project.name}"`,
+    });
     res.json({ message: "Project deleted" });
   } catch (err) {
     console.error("deleteProject error:", err);

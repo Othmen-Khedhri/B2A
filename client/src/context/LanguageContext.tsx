@@ -20,6 +20,7 @@ const translations: Record<Lang, Record<string, string>> = {
     "nav.import":       "Import Excel",
     "nav.estimation":   "Estimation",
     "nav.clients":      "Clients",
+    "nav.pace":         "Project Pace",
     "nav.signout":      "Sign out",
 
     // Header titles
@@ -30,6 +31,7 @@ const translations: Record<Lang, Record<string, string>> = {
     "page.import":      "Import Excel",
     "page.estimation":  "Budget Estimation",
     "page.clients":     "Clients",
+    "page.pace":        "Project Pace",
 
     // Overview
     "overview.total_projects":   "Total Projects",
@@ -244,6 +246,35 @@ const translations: Record<Lang, Record<string, string>> = {
     "clients.modal.notes":       "Notes",
     "clients.modal.notes_ph":    "Any additional information...",
 
+    // Audit Logs
+    "nav.audit":                 "Audit Logs",
+    "page.audit":                "Audit Logs",
+    "page.profile":              "My Profile",
+    "audit.title":               "Audit Logs",
+    "audit.subtitle":            "Complete activity trail for all system actions",
+    "audit.total":               "Total Events",
+    "audit.today":               "Today",
+    "audit.logins":              "Logins",
+    "audit.imports":             "Imports",
+    "audit.search_ph":           "Search by user, action, description...",
+    "audit.filter.action":       "All Actions",
+    "audit.filter.resource":     "All Resources",
+    "audit.filter.from":         "From",
+    "audit.filter.to":           "To",
+    "audit.export_csv":          "Export CSV",
+    "audit.col.time":            "Time",
+    "audit.col.user":            "User",
+    "audit.col.action":          "Action",
+    "audit.col.resource":        "Resource",
+    "audit.col.description":     "Description",
+    "audit.col.ip":              "IP",
+    "audit.no_logs":             "No audit logs found.",
+    "audit.changes":             "Changes",
+    "audit.changes.field":       "Field",
+    "audit.changes.old":         "Old value",
+    "audit.changes.new":         "New value",
+    "audit.changes.none":        "No field-level changes recorded.",
+
     // Common
     "common.loading":            "Loading...",
     "common.no_data":            "No data available.",
@@ -261,6 +292,7 @@ const translations: Record<Lang, Record<string, string>> = {
     "nav.import":       "Importer Excel",
     "nav.estimation":   "Estimation",
     "nav.clients":      "Clients",
+    "nav.pace":         "Rythme Projets",
     "nav.signout":      "Se déconnecter",
 
     // Header titles
@@ -271,6 +303,7 @@ const translations: Record<Lang, Record<string, string>> = {
     "page.import":      "Importer Excel",
     "page.estimation":  "Estimation Budgétaire",
     "page.clients":     "Clients",
+    "page.pace":        "Rythme Projets",
 
     // Overview
     "overview.total_projects":   "Total Projets",
@@ -484,6 +517,35 @@ const translations: Record<Lang, Record<string, string>> = {
     "clients.modal.address_ph":  "ex. 12 Rue de la République, Tunis",
     "clients.modal.notes":       "Notes",
     "clients.modal.notes_ph":    "Informations complémentaires...",
+
+    // Audit Logs
+    "nav.audit":                 "Journal d'audit",
+    "page.audit":                "Journal d'audit",
+    "page.profile":              "Mon profil",
+    "audit.title":               "Journal d'audit",
+    "audit.subtitle":            "Historique complet de toutes les actions système",
+    "audit.total":               "Total événements",
+    "audit.today":               "Aujourd'hui",
+    "audit.logins":              "Connexions",
+    "audit.imports":             "Imports",
+    "audit.search_ph":           "Rechercher par utilisateur, action, description...",
+    "audit.filter.action":       "Toutes les actions",
+    "audit.filter.resource":     "Toutes les ressources",
+    "audit.filter.from":         "Du",
+    "audit.filter.to":           "Au",
+    "audit.export_csv":          "Exporter CSV",
+    "audit.col.time":            "Heure",
+    "audit.col.user":            "Utilisateur",
+    "audit.col.action":          "Action",
+    "audit.col.resource":        "Ressource",
+    "audit.col.description":     "Description",
+    "audit.col.ip":              "IP",
+    "audit.no_logs":             "Aucun journal d'audit trouvé.",
+    "audit.changes":             "Modifications",
+    "audit.changes.field":       "Champ",
+    "audit.changes.old":         "Ancienne valeur",
+    "audit.changes.new":         "Nouvelle valeur",
+    "audit.changes.none":        "Aucune modification détaillée enregistrée.",
 
     // Common
     "common.loading":            "Chargement...",

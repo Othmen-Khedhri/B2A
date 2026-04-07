@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { Building2, Plus, Search, Pencil, Trash2, X, Phone, Mail, MapPin, FileText, Upload, CheckCircle2, AlertCircle, ChevronRight } from "lucide-react";
 import { useLanguage } from "../../../context/LanguageContext";
 import { useNavigate } from "react-router-dom";
@@ -56,6 +57,22 @@ const SECTOR_COLORS: Record<string, string> = {
   Other: "bg-black/[0.04] dark:bg-white/[0.06] text-[#9E9EA3] dark:bg-[#9E9EA3]/30 dark:text-[#9E9EA3]",
 };
 
+const SECTOR_AVATAR: Record<string, { bg: string; text: string }> = {
+  Accounting:    { bg: "bg-amber-500",   text: "text-white" },
+  Finance:       { bg: "bg-emerald-600", text: "text-white" },
+  Legal:         { bg: "bg-purple-600",  text: "text-white" },
+  Healthcare:    { bg: "bg-rose-600",    text: "text-white" },
+  "Real Estate": { bg: "bg-amber-600",   text: "text-white" },
+  Retail:        { bg: "bg-sky-600",     text: "text-white" },
+  Technology:    { bg: "bg-blue-600",    text: "text-white" },
+  Manufacturing: { bg: "bg-orange-600",  text: "text-white" },
+  Construction:  { bg: "bg-yellow-500",  text: "text-[#0D0D0D]" },
+  Education:     { bg: "bg-teal-600",    text: "text-white" },
+  Hospitality:   { bg: "bg-pink-600",    text: "text-white" },
+  Transport:     { bg: "bg-cyan-600",    text: "text-white" },
+  Other:         { bg: "bg-[#6B6B6F]",  text: "text-white" },
+};
+
 const empty = (): Partial<Client> => ({
   name: "", sector: "", phone: "", email: "", address: "", notes: "",
   siret: "", espaceClient: "", espaceExtranet: "", formeJuridique: "",
@@ -83,12 +100,13 @@ function ClientCard({
   const { t, lang } = useLanguage();
   const sectorLabel = lang === "fr" ? (SECTOR_LABELS[client.sector] ?? client.sector) : client.sector;
   const color = SECTOR_COLORS[client.sector] ?? SECTOR_COLORS["Other"];
+  const avatar = SECTOR_AVATAR[client.sector] ?? SECTOR_AVATAR["Other"];
 
   return (
-    <div className="bg-white dark:bg-[#2A2A2E] rounded-lg border border-[#CACAC4] dark:border-white/[0.06] p-5 flex flex-col gap-3 hover:shadow-md transition-shadow">
+    <div className="bg-white dark:bg-[#2A2A2E] rounded-2xl border border-[#CACAC4] dark:border-white/[0.06] p-5 flex flex-col gap-3 hover:shadow-md hover:-translate-y-1 transition-all cursor-pointer">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-full bg-[#9E9EA3]/20 dark:bg-[#9E9EA3]/30 flex items-center justify-center text-white font-bold text-sm shrink-0">
+          <div className={`w-11 h-11 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 ${avatar.bg} ${avatar.text}`}>
             {initials(client.name)}
           </div>
           <div>
@@ -263,9 +281,7 @@ const Clients = () => {
     try {
       const formData = new FormData();
       formData.append("file", importFile);
-      const { data } = await api.post("/clients/import", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      const { data } = await api.post("/clients/import", formData);
       setImportResult(data);
       fetchClients();
     } catch (err: unknown) {
@@ -327,7 +343,7 @@ const Clients = () => {
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div className="stagger-children grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {clients.map((c) => (
             <ClientCard key={c._id} client={c} onEdit={openEdit} onDelete={setToDelete} onProfile={(c) => navigate(`/dashboard/clients/${c._id}`)} />
           ))}
@@ -335,7 +351,7 @@ const Clients = () => {
       )}
 
       {/* ── Add / Edit Modal ─── */}
-      {showForm && (
+      {showForm && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
           <div className="bg-white dark:bg-[#2A2A2E] rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
             {/* Sticky header */}
@@ -464,11 +480,12 @@ const Clients = () => {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* ── Import Modal ─── */}
-      {showImport && (
+      {showImport && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
           <div className="bg-white dark:bg-[#2A2A2E] rounded-lg shadow-2xl w-full max-w-lg p-8">
             <div className="flex items-center justify-between mb-6">
@@ -554,11 +571,12 @@ const Clients = () => {
               </>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* ── Delete Modal ─── */}
-      {toDelete && (
+      {toDelete && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
           <div className="bg-white dark:bg-[#2A2A2E] rounded-lg shadow-2xl w-full max-w-md p-8">
             <h2 className="text-lg font-bold text-[#0D0D0D] dark:text-white mb-2">{t("clients.modal.delete_title")}</h2>
@@ -575,7 +593,8 @@ const Clients = () => {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

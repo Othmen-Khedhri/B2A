@@ -241,15 +241,17 @@ function KpiCard({
   value,
   sub,
   accentClass = "",
+  borderClass = "border-l-[#FFD600]",
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
   sub?: string;
   accentClass?: string;
+  borderClass?: string;
 }) {
   return (
-    <div className="bg-white dark:bg-[#2A2A2E] rounded-xl border border-[#CACAC4] dark:border-white/[0.06] shadow-sm p-5 flex items-start gap-4">
+    <div className={`bg-white dark:bg-[#2A2A2E] rounded-2xl border border-[#CACAC4] dark:border-white/[0.06] border-l-4 ${borderClass} shadow-sm p-5 flex items-start gap-4 hover:-translate-y-1 hover:shadow-md transition-all`}>
       <div className="mt-0.5 shrink-0">{icon}</div>
       <div>
         <p className="text-xs text-[#6B6B6F] dark:text-[#9E9EA3] mb-0.5">{label}</p>
@@ -264,12 +266,13 @@ function KpiCard({
 
 function KpiRow() {
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="stagger-children grid grid-cols-2 lg:grid-cols-4 gap-4">
       <KpiCard
         icon={<FolderKanban size={20} className="text-[#FFD600]" />}
         label="Projets — Total / Actifs / Terminés / En attente"
         value="130"
         sub="Actifs: 62 · Terminés: 44 · En attente: 24"
+        borderClass="border-l-[#FFD600]"
       />
       <KpiCard
         icon={<AlertTriangle size={20} className="text-red-500" />}
@@ -277,17 +280,20 @@ function KpiRow() {
         value="52"
         sub="40% du portefeuille"
         accentClass="text-red-600 dark:text-red-400"
+        borderClass="border-l-red-500"
       />
       <KpiCard
         icon={<Users size={20} className="text-blue-500" />}
         label="Collaborateurs actifs"
         value="15"
+        borderClass="border-l-blue-500"
       />
       <KpiCard
         icon={<TrendingUp size={20} className="text-green-500" />}
         label="Marge moyenne du portefeuille"
         value="7.6%"
         accentClass="text-green-600 dark:text-green-400"
+        borderClass="border-l-green-500"
       />
     </div>
   );
@@ -848,7 +854,7 @@ function AnomaliesSection() {
 
 export default function Overview() {
   return (
-    <div className="min-h-screen bg-[#E2E2DC] dark:bg-[#0D0D0D] p-4 md:p-6 space-y-6">
+    <div className="space-y-6 stagger-children">
       {/* A */}
       <ProjectPaceChecker />
 

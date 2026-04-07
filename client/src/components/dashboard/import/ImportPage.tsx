@@ -82,7 +82,7 @@ const ImportPage = () => {
   };
 
   return (
-    <div className="space-y-14 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="space-y-14 max-w-5xl mx-auto">
       {/* File type selector */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
         {FILE_TYPES.map(({ key, label, description }) => (

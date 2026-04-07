@@ -37,6 +37,7 @@ export interface IExpert extends Document {
   department: string;
   positionCategory: string;
   expStartDate?: Date;
+  avatarUrl?: string;
   resetPasswordToken?: string;
   resetPasswordExpires?: Date;
   createdAt: Date;
@@ -115,6 +116,7 @@ const ExpertSchema = new Schema<IExpert>(
     department:       { type: String, default: "", trim: true },
     positionCategory: { type: String, default: "", trim: true },
     expStartDate:     { type: Date },
+    avatarUrl:        { type: String, default: "" },
     resetPasswordToken: { type: String, select: false },
     resetPasswordExpires: { type: Date, select: false },
   },

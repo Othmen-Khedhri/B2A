@@ -3,22 +3,38 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import nodemailer from "nodemailer";
 import Expert from "../models/Expert";
+import BlacklistedToken from "../models/BlacklistedToken";
+import LoginAttempt from "../models/LoginAttempt";
 import { AuthRequest } from "../middleware/authMiddleware";
 import { Role } from "../models/Expert";
+import { logAudit } from "../utils/auditLogger";
 
-// ─── Token helpers ────────────────────────────────────────────────────────────
+// ─── Constants ─────────────────────────────────────────────────────────────────
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOCK_DURATION_MS   = 15 * 60 * 1000; // 15 minutes
+
+// ─── Helpers ───────────────────────────────────────────────────────────────────
 
 const signAccessToken = (id: string, role: Role, email: string) =>
   jwt.sign({ id, role, email }, process.env.JWT_ACCESS_SECRET as string, {
     expiresIn: "8h",
   });
 
-const signRefreshToken = (id: string) =>
-  jwt.sign({ id }, process.env.JWT_REFRESH_SECRET as string, {
+/** Embeds a device fingerprint (fp) so the refresh endpoint can bind the token
+ *  to the originating IP + user-agent. */
+const signRefreshToken = (id: string, fingerprint: string) =>
+  jwt.sign({ id, fp: fingerprint }, process.env.JWT_REFRESH_SECRET as string, {
     expiresIn: "7d",
   });
 
-// ─── Email helper ─────────────────────────────────────────────────────────────
+/** SHA-256 of "ip|user-agent" — stored as a claim in the refresh JWT. */
+const buildFingerprint = (req: Request): string =>
+  crypto
+    .createHash("sha256")
+    .update(`${req.ip ?? ""}|${req.headers["user-agent"] ?? ""}`)
+    .digest("hex");
+
+// ─── Email helper ───────────────────────────────────────────────────────────────
 
 const sendResetEmail = async (to: string, resetUrl: string) => {
   const transporter = nodemailer.createTransport({
@@ -49,7 +65,7 @@ const sendResetEmail = async (to: string, resetUrl: string) => {
   });
 };
 
-// ─── Controllers ──────────────────────────────────────────────────────────────
+// ─── Controllers ───────────────────────────────────────────────────────────────
 
 /**
  * POST /api/auth/login
@@ -63,29 +79,60 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
+  const normalizedEmail = email.toLowerCase().trim();
+
   try {
-    // Explicitly select password (excluded by default in schema)
-    const expert = await Expert.findOne({ email: email.toLowerCase() }).select(
-      "+password"
-    );
+    // ── Rate-limit check ──────────────────────────────────────────────────────
+    const attempt = await LoginAttempt.findOne({ email: normalizedEmail });
+    if (attempt?.lockedUntil && attempt.lockedUntil > new Date()) {
+      res.status(429).json({ message: "Too many attempts, try again later" });
+      return;
+    }
 
-    if (!expert) {
+    // ── Credential check ──────────────────────────────────────────────────────
+    const expert = await Expert.findOne({ email: normalizedEmail }).select("+password");
+
+    const isMatch = expert ? await expert.comparePassword(password) : false;
+
+    if (!expert || !isMatch) {
+      // Record failed attempt — upsert and slide the TTL window forward
+      const updated = await LoginAttempt.findOneAndUpdate(
+        { email: normalizedEmail },
+        { $inc: { count: 1 }, $set: { updatedAt: new Date() } },
+        { upsert: true, returnDocument: "after" }
+      );
+      if (updated.count >= MAX_LOGIN_ATTEMPTS) {
+        updated.lockedUntil = new Date(Date.now() + LOCK_DURATION_MS);
+        await updated.save();
+        logAudit(req, {
+          action: "LOGIN_FAILED", resource: "auth",
+          description: `Account locked after ${MAX_LOGIN_ATTEMPTS} failed attempts for ${normalizedEmail}`,
+          metadata: { email: normalizedEmail },
+        });
+        res.status(429).json({ message: "Too many attempts, try again later" });
+        return;
+      }
+      logAudit(req, {
+        action: "LOGIN_FAILED", resource: "auth",
+        description: `Failed login attempt for ${normalizedEmail}`,
+        metadata: { email: normalizedEmail, attempts: updated.count },
+      });
       res.status(401).json({ message: "Invalid email or password" });
       return;
     }
 
-    const isMatch = await expert.comparePassword(password);
-    if (!isMatch) {
-      res.status(401).json({ message: "Invalid email or password" });
-      return;
-    }
+    // ── Success — clear attempt record ────────────────────────────────────────
+    await LoginAttempt.deleteOne({ email: normalizedEmail });
 
-    const accessToken = signAccessToken(
-      expert._id.toString(),
-      expert.role,
-      expert.email
-    );
-    const refreshToken = signRefreshToken(expert._id.toString());
+    const fingerprint  = buildFingerprint(req);
+    const accessToken  = signAccessToken(expert._id.toString(), expert.role, expert.email);
+    const refreshToken = signRefreshToken(expert._id.toString(), fingerprint);
+
+    logAudit(req, {
+      action: "LOGIN", resource: "auth",
+      resourceId: expert._id.toString(), resourceName: expert.name,
+      description: `${expert.name} (${expert.role}) logged in`,
+    });
 
     res.status(200).json({
       accessToken,
@@ -120,10 +167,26 @@ export const refreshToken = async (
   }
 
   try {
+    // ── Blacklist check ───────────────────────────────────────────────────────
+    const isBlacklisted = await BlacklistedToken.exists({ token });
+    if (isBlacklisted) {
+      res.status(401).json({ message: "Refresh token has been revoked" });
+      return;
+    }
+
     const decoded = jwt.verify(
       token,
       process.env.JWT_REFRESH_SECRET as string
-    ) as { id: string };
+    ) as { id: string; fp?: string };
+
+    // ── Device fingerprint check ──────────────────────────────────────────────
+    if (decoded.fp) {
+      const currentFp = buildFingerprint(req);
+      if (decoded.fp !== currentFp) {
+        res.status(401).json({ message: "Session invalid — please log in again" });
+        return;
+      }
+    }
 
     const expert = await Expert.findById(decoded.id);
     if (!expert) {
@@ -144,8 +207,37 @@ export const refreshToken = async (
 };
 
 /**
+ * POST /api/auth/logout  (protected)
+ * Body: { refreshToken }
+ * Blacklists the refresh token so it can never be used again.
+ */
+export const logout = async (req: AuthRequest, res: Response): Promise<void> => {
+  const { refreshToken: token } = req.body;
+
+  if (token) {
+    try {
+      const decoded = jwt.decode(token) as { exp?: number } | null;
+      if (decoded?.exp) {
+        const expiresAt = new Date(decoded.exp * 1000);
+        // Ignore duplicate-key errors (token already blacklisted)
+        await BlacklistedToken.create({ token, expiresAt }).catch(() => {});
+      }
+    } catch {
+      // Malformed token — silently ignore, still succeed the logout
+    }
+  }
+
+  logAudit(req, {
+    action: "LOGOUT", resource: "auth",
+    resourceId: req.user?.id, resourceName: req.user?.email,
+    description: `${req.user?.email ?? "unknown"} logged out`,
+  });
+
+  res.status(200).json({ message: "Logged out successfully" });
+};
+
+/**
  * GET /api/auth/me  (protected)
- * Returns the currently logged-in user's profile
  */
 export const getMe = async (
   req: AuthRequest,
@@ -174,7 +266,6 @@ export const getMe = async (
 
 /**
  * POST /api/auth/forgot-password
- * Body: { email }
  */
 export const forgotPassword = async (
   req: Request,
@@ -192,46 +283,42 @@ export const forgotPassword = async (
       "+resetPasswordToken +resetPasswordExpires"
     );
 
-    // Always respond with success to prevent email enumeration
     if (!expert) {
       res.status(200).json({
-        message:
-          "If this email exists in our system, a reset link has been sent.",
+        message: "If this email exists in our system, a reset link has been sent.",
       });
       return;
     }
 
-    // Generate a secure random token
     const rawToken = crypto.randomBytes(32).toString("hex");
-    const hashedToken = crypto
-      .createHash("sha256")
-      .update(rawToken)
-      .digest("hex");
+    const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
 
     expert.resetPasswordToken = hashedToken;
-    expert.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    expert.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000);
     await expert.save({ validateBeforeSave: false });
 
     const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
-    const resetUrl = `${clientUrl}/reset-password/${rawToken}`;
+    const resetUrl  = `${clientUrl}/reset-password/${rawToken}`;
 
-    // In development: always log the link to console (email may not be configured)
     console.log("\n🔑 [DEV] Password reset link for", email);
     console.log("→", resetUrl, "\n");
 
-    // Send email only if credentials are configured
     if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
       try {
         await sendResetEmail(expert.email, resetUrl);
       } catch (emailErr) {
         console.error("Email send failed:", emailErr);
-        // Don't fail the request — the console link is still available in dev
       }
     }
 
+    logAudit(req, {
+      action: "PASSWORD_FORGOT", resource: "auth",
+      resourceId: expert._id.toString(), resourceName: expert.name,
+      description: `Password reset requested for ${expert.email}`,
+    });
+
     res.status(200).json({
-      message:
-        "If this email exists in our system, a reset link has been sent.",
+      message: "If this email exists in our system, a reset link has been sent.",
     });
   } catch (err) {
     console.error("forgotPassword error:", err);
@@ -241,7 +328,6 @@ export const forgotPassword = async (
 
 /**
  * POST /api/auth/reset-password/:token
- * Body: { password }
  */
 export const resetPassword = async (
   req: Request,
@@ -251,9 +337,7 @@ export const resetPassword = async (
   const { password } = req.body;
 
   if (!password || password.length < 8) {
-    res
-      .status(400)
-      .json({ message: "Password must be at least 8 characters" });
+    res.status(400).json({ message: "Password must be at least 8 characters" });
     return;
   }
 
@@ -269,16 +353,20 @@ export const resetPassword = async (
     }).select("+resetPasswordToken +resetPasswordExpires");
 
     if (!expert) {
-      res
-        .status(400)
-        .json({ message: "Reset token is invalid or has expired" });
+      res.status(400).json({ message: "Reset token is invalid or has expired" });
       return;
     }
 
-    expert.password = password; // pre-save hook will hash it
+    expert.password = password;
     expert.resetPasswordToken = undefined;
     expert.resetPasswordExpires = undefined;
     await expert.save();
+
+    logAudit(req, {
+      action: "PASSWORD_RESET", resource: "auth",
+      resourceId: expert._id.toString(), resourceName: expert.name,
+      description: `Password successfully reset for ${expert.email}`,
+    });
 
     res.status(200).json({ message: "Password reset successful. You can now log in." });
   } catch (err) {
