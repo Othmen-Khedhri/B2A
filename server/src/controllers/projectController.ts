@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import Project from "../models/Project";
 import TimeEntry from "../models/TimeEntry";
 import { logAudit, diffChanges } from "../utils/auditLogger";
+import { recalcExpertLoads } from "../utils/loadRecalculator";
 
 export const getProjects = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -106,6 +107,11 @@ export const deleteProject = async (req: Request, res: Response): Promise<void> 
       res.status(404).json({ message: "Project not found" });
       return;
     }
+
+    // Remove related time entries to keep staff load in sync.
+    await TimeEntry.deleteMany({ projectId: project._id });
+    await recalcExpertLoads();
+
     logAudit(req, {
       action: "DELETE", resource: "project",
       resourceId: project._id.toString(), resourceName: project.name,

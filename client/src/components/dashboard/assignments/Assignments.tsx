@@ -69,12 +69,18 @@ const AVATAR_COLORS = [
   "bg-amber-400", "bg-sky-400", "bg-teal-400", "bg-purple-400", "bg-rose-400",
 ];
 
+const MONTHLY_HOURS = 160;
+
 function expertInitials(name: string) {
   return name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 }
 
 function expertColor(name: string) {
   return AVATAR_COLORS[name.charCodeAt(0) % AVATAR_COLORS.length];
+}
+
+function loadToPct(hours: number) {
+  return Math.min(Math.round((hours / MONTHLY_HOURS) * 100), 100);
 }
 
 // ─── Badge / UI atoms ─────────────────────────────────────────────────────────
@@ -182,6 +188,7 @@ export default function Assignments() {
   const [leaves,   setLeaves]   = useState<DBLeave[]>([]);
   const [paceMap,  setPaceMap]  = useState<Map<string, PaceEntry>>(new Map());
   const [loading,  setLoading]  = useState(true);
+  const [recalcLoading, setRecalcLoading] = useState(false);
 
   const [viewMode,      setViewMode]      = useState<ViewMode>("staff");
   const [search,        setSearch]        = useState("");
@@ -235,6 +242,16 @@ export default function Assignments() {
     }).finally(() => setLoading(false));
   };
 
+  const recalculateLoads = async () => {
+    try {
+      setRecalcLoading(true);
+      await api.post("/staff/recalculate-loads");
+      refresh();
+    } finally {
+      setRecalcLoading(false);
+    }
+  };
+
   // ── Derived ──────────────────────────────────────────────────────────────
 
   const leaveMap = new Map<string, DBLeave[]>();
@@ -263,9 +280,10 @@ export default function Assignments() {
 
   // Apply quick filters + search to staff
   const visibleStaff = staff.filter((e) => {
+    const loadPct = loadToPct(e.currentLoad);
     const q = search.toLowerCase();
     if (q && viewMode !== "project" && !e.name.toLowerCase().includes(q)) return false;
-    if (activeFilters.has("overloaded")  && e.currentLoad <= 90) return false;
+    if (activeFilters.has("overloaded")  && loadPct <= 90) return false;
     if (activeFilters.has("onleave")     && !leaveMap.has(e._id)) return false;
     if (activeFilters.has("burnout")     && !e.burnoutFlags?.flagged) return false;
     if (activeFilters.has("unassigned")  && projects.some((p) => p.assignedStaff?.includes(e._id))) return false;
@@ -285,7 +303,7 @@ export default function Assignments() {
   });
 
   // Quick-filter chip counts
-  const overloadedCount = staff.filter((e) => e.currentLoad > 90).length;
+  const overloadedCount = staff.filter((e) => loadToPct(e.currentLoad) > 90).length;
   const onLeaveCount    = staff.filter((e) => leaveMap.has(e._id)).length;
   const burnoutCount    = staff.filter((e) => e.burnoutFlags?.flagged).length;
   const unassignedCount = staff.filter((e) => !projects.some((p) => p.assignedStaff?.includes(e._id))).length;
@@ -318,12 +336,24 @@ export default function Assignments() {
             </p>
           </div>
         </div>
-        <button
-          onClick={refresh}
-          className="flex items-center gap-2 px-3 py-2 rounded-xl border border-[#CACAC4] dark:border-white/[0.06] text-sm text-[#6B6B6F] dark:text-[#9E9EA3] hover:bg-[#F2F2F2] dark:hover:bg-white/[0.04] transition"
-        >
-          <RefreshCw className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={recalculateLoads}
+            disabled={recalcLoading}
+            className="flex items-center gap-2 px-3 py-2 rounded-xl border border-[#CACAC4] dark:border-white/[0.06] text-sm text-[#6B6B6F] dark:text-[#9E9EA3] hover:bg-[#F2F2F2] dark:hover:bg-white/[0.04] transition disabled:opacity-60"
+            title="Recalculer les charges"
+          >
+            <RefreshCw className={`w-4 h-4 ${recalcLoading ? "animate-spin" : ""}`} />
+            Recalculer
+          </button>
+          <button
+            onClick={refresh}
+            className="flex items-center gap-2 px-3 py-2 rounded-xl border border-[#CACAC4] dark:border-white/[0.06] text-sm text-[#6B6B6F] dark:text-[#9E9EA3] hover:bg-[#F2F2F2] dark:hover:bg-white/[0.04] transition"
+            title="Rafraichir"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* ── View Tabs ────────────────────────────────────────────────────────── */}
@@ -411,9 +441,10 @@ export default function Assignments() {
             const burnout          = expert.burnoutFlags?.flagged;
             const assignedProjects = projects.filter((p) => p.assignedStaff?.includes(expert._id));
             const isExpanded       = expandedStaff.has(expert._id);
+            const loadPct          = loadToPct(expert.currentLoad);
             const loadColor        =
-              expert.currentLoad < 70  ? "text-green-600 dark:text-green-400"
-              : expert.currentLoad <= 90 ? "text-amber-600 dark:text-amber-400"
+              loadPct < 70  ? "text-green-600 dark:text-green-400"
+              : loadPct <= 90 ? "text-amber-600 dark:text-amber-400"
               : "text-red-600 dark:text-red-400";
 
             return (
@@ -455,8 +486,8 @@ export default function Assignments() {
                       {onLeave && expertLeaves.map((l, i) => <CongeBadge key={i} type={l.type} />)}
                     </div>
                     <div className="flex items-center gap-2">
-                      <WorkloadBar pct={expert.currentLoad} />
-                      <span className={`shrink-0 text-xs font-bold ${loadColor}`}>{expert.currentLoad}%</span>
+                      <WorkloadBar pct={loadPct} />
+                      <span className={`shrink-0 text-xs font-bold ${loadColor}`}>{loadPct}%</span>
                     </div>
                   </div>
 
@@ -719,8 +750,8 @@ export default function Assignments() {
                                 <LevelBadge level={expert.level} />
                               </div>
                               <div className="flex items-center gap-1 mt-0.5">
-                                <WorkloadBar pct={expert.currentLoad} />
-                                <span className="text-[10px] text-[#9E9EA3] shrink-0">{expert.currentLoad}%</span>
+                                <WorkloadBar pct={loadPct} />
+                                <span className="text-[10px] text-[#9E9EA3] shrink-0">{loadPct}%</span>
                                 {expertLeaves.slice(0, 1).map((l, i) => <CongeBadge key={i} type={l.type} />)}
                               </div>
                             </div>
@@ -877,7 +908,7 @@ export default function Assignments() {
                         projet{nbProjets !== 1 ? "s" : ""}
                       </span>
                       <span>
-                        <span className="font-semibold text-[#0D0D0D] dark:text-white">{expert.currentLoad}%</span>{" "}
+                        <span className="font-semibold text-[#0D0D0D] dark:text-white">{loadToPct(expert.currentLoad)}%</span>{" "}
                         charge
                       </span>
                       {totalDays > 0 && (
@@ -889,7 +920,7 @@ export default function Assignments() {
                       )}
                     </div>
                   </div>
-                  <WorkloadBar pct={expert.currentLoad} />
+                  <WorkloadBar pct={loadToPct(expert.currentLoad)} />
                 </div>
               );
             })}

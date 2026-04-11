@@ -11,6 +11,7 @@ export interface ILeave extends Document {
   type: LeaveType;
   approved: boolean;
   notes: string;
+  importId?: mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -25,6 +26,7 @@ const LeaveSchema = new Schema<ILeave>(
     type:        { type: String, enum: ["Annuel", "Maladie", "Exceptionnel"], default: "Annuel" },
     approved:    { type: Boolean, default: false },
     notes:       { type: String, default: "", trim: true },
+    importId:    { type: Schema.Types.ObjectId, ref: "ImportHistory" },
   },
   { timestamps: true }
 );

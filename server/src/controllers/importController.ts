@@ -5,10 +5,11 @@ import { AuthRequest } from "../middleware/authMiddleware";
 import ImportHistory from "../models/ImportHistory";
 import TimeEntry from "../models/TimeEntry";
 import BillingEntry from "../models/BillingEntry";
-import Conge from "../models/Conge";
+import Leave from "../models/Leave";
 import Project from "../models/Project";
 import Expert from "../models/Expert";
 import { FileType } from "../models/ImportHistory";
+import { recalcExpertLoads } from "../utils/loadRecalculator";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -58,8 +59,8 @@ const parseTimesheets = async (rows: Record<string, unknown>[], importId: mongoo
 
       // Update project hours consumed
       await Project.findByIdAndUpdate(project._id, { $inc: { hoursConsumed: hours } });
-      // Update expert load
-      await Expert.findByIdAndUpdate(expert._id, { $inc: { currentLoad: hours, totalHours: hours } });
+      // Update expert total hours only; currentLoad is recalculated after import.
+      await Expert.findByIdAndUpdate(expert._id, { $inc: { totalHours: hours } });
 
       count++;
     } catch (e) {
@@ -117,7 +118,13 @@ const parseLeave = async (rows: Record<string, unknown>[], importId: mongoose.Ty
       const expertName = (row["Employee"] || row["Name"] || row["Employé"] || row["Collaborateur"] || "") as string;
       const dateStart = row["Start Date"] || row["Date début"] || row["Début"];
       const dateEnd = row["End Date"] || row["Date fin"] || row["Fin"];
-      const type = (row["Type"] || row["Leave Type"] || "Annual") as string;
+      const rawType = (row["Type"] || row["Leave Type"] || "") as string;
+      const typeMap: Record<string, "Annuel" | "Maladie" | "Exceptionnel"> = {
+        annual: "Annuel", annuel: "Annuel", vacation: "Annuel", congé: "Annuel", conge: "Annuel",
+        sick: "Maladie", maladie: "Maladie", illness: "Maladie",
+        exceptional: "Exceptionnel", exceptionnel: "Exceptionnel", special: "Exceptionnel",
+      };
+      const type = typeMap[rawType.toLowerCase().trim()] ?? "Annuel";
       const days = toNum(row["Days"] || row["Jours"] || 1);
 
       if (!expertName || !dateStart || !dateEnd) { errors.push("Row skipped: missing fields"); continue; }
@@ -125,7 +132,7 @@ const parseLeave = async (rows: Record<string, unknown>[], importId: mongoose.Ty
       const expert = await Expert.findOne({ name: { $regex: expertName.trim(), $options: "i" } });
       if (!expert) { errors.push(`Expert not found: ${expertName}`); continue; }
 
-      await Conge.create({
+      await Leave.create({
         expertId: expert._id,
         expertName: expert.name,
         dateStart: parseDate(dateStart),
@@ -257,13 +264,17 @@ export const importFile = async (req: AuthRequest, res: Response): Promise<void>
     if (fileType === "leave") result = await parseLeave(rows, importRecord._id as mongoose.Types.ObjectId);
     if (fileType === "budgets") result = await parseBudgets(rows, importRecord._id as mongoose.Types.ObjectId);
 
+    if (fileType === "timesheets") {
+      await recalcExpertLoads();
+    }
+
     // Recalculate pace indexes after any import
     await recalculatePaceIndexes();
 
     const status = result.errors.length === 0 ? "success" : result.count > 0 ? "partial" : "failed";
     await ImportHistory.findByIdAndUpdate(importRecord._id, {
       recordCount: result.count,
-      errors: result.errors,
+      importErrors: result.errors,
       status,
     });
 

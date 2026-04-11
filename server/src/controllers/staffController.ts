@@ -2,6 +2,7 @@ import path from "path";
 import fs from "fs";
 import { Request, Response } from "express";
 import Expert from "../models/Expert";
+import { recalcExpertLoads } from "../utils/loadRecalculator";
 import { logAudit, diffChanges } from "../utils/auditLogger";
 
 export const createStaff = async (req: Request, res: Response): Promise<void> => {
@@ -159,7 +160,7 @@ export const uploadAvatar = async (req: Request, res: Response): Promise<void> =
 
     // Delete old avatar file if it exists
     if (expert.avatarUrl) {
-      const oldPath = path.join(process.cwd(), "uploads", path.basename(expert.avatarUrl));
+      const oldPath = path.join(process.cwd(), "uploads", "avatars", path.basename(expert.avatarUrl));
       fs.unlink(oldPath, () => {}); // ignore errors (file may not exist)
     }
 
@@ -170,6 +171,16 @@ export const uploadAvatar = async (req: Request, res: Response): Promise<void> =
     res.json({ avatarUrl });
   } catch (err) {
     console.error("uploadAvatar error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+export const recalculateStaffLoads = async (req: Request, res: Response): Promise<void> => {
+  try {
+    await recalcExpertLoads();
+    res.json({ message: "Staff loads recalculated" });
+  } catch (err) {
+    console.error("recalculateStaffLoads error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
