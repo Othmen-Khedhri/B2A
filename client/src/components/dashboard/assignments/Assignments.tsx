@@ -217,6 +217,8 @@ export default function Assignments() {
       const map = new Map<string, PaceEntry>();
       for (const entry of pace.data) map.set(entry._id, entry);
       setPaceMap(map);
+    }).catch((err) => {
+      console.error("Assignments data fetch failed:", err);
     }).finally(() => setLoading(false));
   }, []);
 
@@ -239,6 +241,8 @@ export default function Assignments() {
       for (const entry of pace.data) map.set(entry._id, entry);
       setPaceMap(map);
       setLeaves(l.data);
+    }).catch((err) => {
+      console.error("Assignments refresh failed:", err);
     }).finally(() => setLoading(false));
   };
 
@@ -719,6 +723,7 @@ export default function Assignments() {
                     const onLeave      = expertLeaves.length > 0;
                     const burnout      = expert.burnoutFlags?.flagged;
                     const isHovRow     = hovRow === expert._id;
+                    const loadPct      = loadToPct(expert.currentLoad);
 
                     return (
                       <tr

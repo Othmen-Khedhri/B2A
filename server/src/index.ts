@@ -11,6 +11,8 @@ import importRoutes from "./routes/importRoutes";
 import clientRoutes from "./routes/clientRoutes";
 import leaveRoutes  from "./routes/leaveRoutes";
 import auditLogRoutes from "./routes/auditLogRoutes";
+import estimationRoutes from "./routes/estimationRoutes";
+import affectationRoutes from "./routes/affectationRoutes";
 
 dotenv.config();
 
@@ -33,14 +35,25 @@ app.use("/api/import", importRoutes);
 app.use("/api/clients", clientRoutes);
 app.use("/api/leaves",      leaveRoutes);
 app.use("/api/audit-logs", auditLogRoutes);
+app.use("/api/estimations", estimationRoutes);
+app.use("/api/affectations", affectationRoutes);
 
 app.get("/api", (_req, res) => {
   res.json({ message: "B2A Smart-Resource API is running" });
 });
 
 // ─── Database ─────────────────────────────────────────────────────────────────
+mongoose.connection.on("disconnected", () => console.warn("MongoDB disconnected — will retry"));
+mongoose.connection.on("reconnected",  () => console.log("MongoDB reconnected"));
+
 mongoose
-  .connect(process.env.MONGO_URI as string)
+  .connect(process.env.MONGO_URI as string, {
+    serverSelectionTimeoutMS: 10_000,  // fail fast on initial connect
+    socketTimeoutMS:          45_000,  // close idle sockets after 45s
+    connectTimeoutMS:         10_000,
+    maxPoolSize:              10,
+    heartbeatFrequencyMS:     10_000,  // probe disconnected servers every 10s
+  })
   .then(() => console.log("MongoDB Connected"))
   .catch((err) => console.error("MongoDB connection error:", err));
 

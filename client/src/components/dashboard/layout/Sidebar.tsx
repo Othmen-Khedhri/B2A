@@ -1,7 +1,7 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, FolderKanban, Users, Grid3X3,
-  Upload, Brain, Building2, LogOut, Gauge, ShieldCheck,
+  Upload, Brain, Building2, LogOut, Gauge, ShieldCheck, UserPlus,
 } from "lucide-react";
 import { useAuth } from "../../../context/AuthContext";
 import { useLanguage } from "../../../context/LanguageContext";
@@ -17,7 +17,8 @@ const navItems = [
   { to: "/dashboard/staff",       icon: Users,           key: "nav.staff",                   roles: null },
   { to: "/dashboard/assignments", icon: Grid3X3,         key: "nav.assignments",             roles: null },
   { to: "/dashboard/import",      icon: Upload,          key: "nav.import",                  roles: null },
-  { to: "/dashboard/estimation",  icon: Brain,           key: "nav.estimation",              roles: null },
+  { to: "/dashboard/estimation",   icon: Brain,           key: "nav.estimation",              roles: null },
+  { to: "/dashboard/team-builder", icon: UserPlus,        key: "nav.teambuilder",             roles: null },
   { to: "/dashboard/clients",     icon: Building2,       key: "nav.clients",                 roles: null },
   { to: "/dashboard/audit-logs",  icon: ShieldCheck,     key: "nav.audit",                   roles: ["admin"] },
 ];

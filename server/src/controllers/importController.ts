@@ -23,50 +23,127 @@ const toNum = (val: unknown): number => Number(val) || 0;
 
 // ─── parsers per file type ────────────────────────────────────────────────────
 
+// Resolve the value of a column from a row, trying multiple key aliases.
+const col = (row: Record<string, unknown>, ...keys: string[]): unknown => {
+  for (const k of keys) {
+    if (row[k] !== undefined && row[k] !== null && row[k] !== "") return row[k];
+  }
+  // Case-insensitive fallback
+  const lower = keys.map((k) => k.toLowerCase());
+  for (const [k, v] of Object.entries(row)) {
+    if (v !== undefined && v !== null && v !== "" && lower.includes(k.toLowerCase())) return v;
+  }
+  return undefined;
+};
+
 const parseTimesheets = async (rows: Record<string, unknown>[], importId: mongoose.Types.ObjectId) => {
   const errors: string[] = [];
   let count = 0;
 
+  // Default period: first day of current month (used when the file has no Date column)
+  const defaultDate = new Date();
+  defaultDate.setDate(1);
+  defaultDate.setHours(0, 0, 0, 0);
+
+  // Track which projects were touched so we can recompute their metrics at the end
+  const touchedProjectIds = new Set<string>();
+
   for (const row of rows) {
     try {
-      const expertName =
-        (row["Employee Name"] || row["Name"] || row["Collaborateur"] || row["nom"] || "") as string;
-      const projectName =
-        (row["Project"] || row["Project Name"] || row["Mission"] || row["projet"] || "") as string;
-      const dateRaw = row["Date"] || row["date"] || row["Jour"];
-      const hours = toNum(row["Hours"] || row["Heures"] || row["Durée"] || row["hours"]);
+      const expertName = String(
+        col(row,
+          "Collaborator Name", "Collaborateur", "Nom du Collaborateur", "Nom Collaborateur",
+          "Employee Name", "Employee", "Name", "Nom", "nom",
+        ) || ""
+      ).trim();
 
-      if (!expertName || !projectName || !dateRaw) {
-        errors.push(`Row skipped: missing required fields — ${JSON.stringify(row)}`);
+      const projectName = String(
+        col(row,
+          "Project Name", "Nom du Projet", "Nom Projet", "Projet",
+          "Project", "Mission", "projet",
+        ) || ""
+      ).trim();
+
+      const clientName = String(col(row, "Client", "client", "Nom du Client") || "").trim();
+
+      const hours = toNum(
+        col(row, "Hour", "Hours", "Heures", "Heures Consommées", "Durée", "hours", "heures")
+      );
+
+      if (!expertName || !projectName) {
+        errors.push(`Row skipped: missing Collaborator Name or Project Name — ${JSON.stringify(row)}`);
         continue;
       }
 
-      const expert = await Expert.findOne({ name: { $regex: expertName.trim(), $options: "i" } });
-      const project = await Project.findOne({ name: { $regex: projectName.trim(), $options: "i" } });
+      if (hours <= 0) {
+        errors.push(`Row skipped: hours must be > 0 for ${expertName} / ${projectName}`);
+        continue;
+      }
 
-      if (!expert) { errors.push(`Expert not found: ${expertName}`); continue; }
-      if (!project) { errors.push(`Project not found: ${projectName}`); continue; }
+      const expert = await Expert.findOne({ name: { $regex: expertName, $options: "i" } });
 
-      await TimeEntry.create({
-        expertId: expert._id,
-        expertName: expert.name,
+      // Match project by name; if ambiguous and a client is provided, narrow by clientName
+      let project = await Project.findOne({ name: { $regex: projectName, $options: "i" } });
+      if (!project && clientName) {
+        project = await Project.findOne({
+          clientName: { $regex: clientName, $options: "i" },
+          name:       { $regex: projectName, $options: "i" },
+        });
+      }
+
+      if (!expert)  { errors.push(`Collaborator not found: "${expertName}"`); continue; }
+      if (!project) { errors.push(`Project not found: "${projectName}"${clientName ? ` (client: ${clientName})` : ""}`); continue; }
+
+      // Use the file's date if provided, otherwise default to first day of current month
+      const dateRaw = col(row, "Date", "date", "Jour", "Période", "Periode", "Period", "Mois");
+      const date = dateRaw ? parseDate(dateRaw) : defaultDate;
+
+      // Upsert: if this (expert, project, importId) already exists, update hours instead of duplicating
+      const existing = await TimeEntry.findOne({
+        expertId:  expert._id,
         projectId: project._id,
-        projectName: project.name,
-        date: parseDate(dateRaw),
-        hours,
         importId,
       });
 
-      // Update project hours consumed
-      await Project.findByIdAndUpdate(project._id, { $inc: { hoursConsumed: hours } });
-      // Update expert total hours only; currentLoad is recalculated after import.
-      await Expert.findByIdAndUpdate(expert._id, { $inc: { totalHours: hours } });
+      if (existing) {
+        const delta = hours - existing.hours;
+        await existing.updateOne({ $set: { hours } });
+        // Adjust the project's hoursConsumed by the delta
+        await Project.findByIdAndUpdate(project._id, { $inc: { hoursConsumed: delta } });
+        await Expert.findByIdAndUpdate(expert._id,   { $inc: { totalHours:    delta } });
+      } else {
+        await TimeEntry.create({
+          expertId:    expert._id,
+          expertName:  expert.name,
+          projectId:   project._id,
+          projectName: project.name,
+          date,
+          hours,
+          validationStatus: "validated",
+          importId,
+        });
 
+        // costConsumed for this entry = hours × expert's hourly rate
+        const entryCost = hours * (Number(expert.coutHoraire) || 0);
+
+        await Project.findByIdAndUpdate(project._id, {
+          $inc: { hoursConsumed: hours, costConsumed: entryCost },
+        });
+        await Expert.findByIdAndUpdate(expert._id, { $inc: { totalHours: hours } });
+      }
+
+      touchedProjectIds.add((project._id as mongoose.Types.ObjectId).toString());
       count++;
     } catch (e) {
       errors.push(`Row error: ${(e as Error).message}`);
     }
   }
+
+  // Recompute pace index and margin for every project that received new hours
+  if (touchedProjectIds.size > 0) {
+    await recalculatePaceIndexes(Array.from(touchedProjectIds));
+  }
+
   return { count, errors };
 };
 
@@ -150,78 +227,38 @@ const parseLeave = async (rows: Record<string, unknown>[], importId: mongoose.Ty
   return { count, errors };
 };
 
-const parseBudgets = async (rows: Record<string, unknown>[], importId: mongoose.Types.ObjectId) => {
-  const errors: string[] = [];
-  let count = 0;
 
-  for (const row of rows) {
-    try {
-      const name = (row["Project"] || row["Mission"] || row["Projet"] || row["Name"] || "") as string;
-      const clientName = (row["Client"] || "") as string;
-      const budgetHours = toNum(row["Budget Hours"] || row["Heures budget"] || 0);
-      const budgetCost = toNum(row["Budget Cost"] || row["Budget coût"] || row["Budget"] || 0);
-      const startDate = row["Start Date"] || row["Date début"] || new Date();
-      const endDate = row["End Date"] || row["Date fin"] || new Date();
-      const partnerName = (row["Partner"] || row["Responsable"] || "") as string;
-      const type = (row["Type"] || "General") as string;
+// ─── Recompute pace index and margin for a set of projects (or all if none given) ─
 
-      if (!name) { errors.push("Row skipped: missing project name"); continue; }
+const recalculatePaceIndexes = async (projectIds?: string[]) => {
+  const filter = projectIds && projectIds.length > 0
+    ? { _id: { $in: projectIds } }
+    : {};
 
-      await Project.findOneAndUpdate(
-        { name: { $regex: name.trim(), $options: "i" } },
-        {
-          name: name.trim(),
-          clientName,
-          budgetHours,
-          budgetCost,
-          startDate: parseDate(startDate),
-          endDate: parseDate(endDate),
-          responsiblePartnerName: partnerName,
-          type,
-        },
-        { upsert: true, returnDocument: "after" }
-      );
-      count++;
-    } catch (e) {
-      errors.push(`Row error: ${(e as Error).message}`);
-    }
-  }
-  return { count, errors };
-};
+  const projects = await Project.find(filter);
+  const now      = Date.now();
 
-// ─── Recalculate Pace Index for all active projects ───────────────────────────
+  const ops = projects.map((p) => {
+    const totalMs    = p.endDate.getTime() - p.startDate.getTime();
+    const elapsedRatio = totalMs > 0
+      ? Math.min(Math.max((now - p.startDate.getTime()) / totalMs, 0.01), 1)
+      : 1;
 
-const recalculatePaceIndexes = async () => {
-  const projects = await Project.find({ status: "active" });
-  const now = new Date();
-
-  for (const p of projects) {
-    const totalMs = p.endDate.getTime() - p.startDate.getTime();
-    const elapsedMs = now.getTime() - p.startDate.getTime();
-    const timeElapsed = Math.min(Math.max(elapsedMs / totalMs, 0.01), 1);
-
-    const paceIndexHours =
-      p.budgetHours > 0
-        ? (p.hoursConsumed / p.budgetHours) / timeElapsed
-        : 0;
-
-    const paceIndexCost =
-      p.budgetCost > 0
-        ? (p.costConsumed / p.budgetCost) / timeElapsed
-        : 0;
-
-    const grossMargin = p.invoicedAmount - p.costConsumed;
-    const marginPercent = p.invoicedAmount > 0 ? (grossMargin / p.invoicedAmount) * 100 : 0;
+    const paceIndexHours     = p.budgetHours > 0 ? (p.hoursConsumed / p.budgetHours) / elapsedRatio : 0;
+    const paceIndexCost      = p.budgetCost  > 0 ? (p.costConsumed  / p.budgetCost)  / elapsedRatio : 0;
+    const grossMargin        = p.budgetCost - p.costConsumed;
+    const marginPercent      = p.budgetCost > 0 ? (grossMargin / p.budgetCost) * 100 : 0;
     const effectiveCostPerHour = p.hoursConsumed > 0 ? p.costConsumed / p.hoursConsumed : 0;
 
-    await Project.findByIdAndUpdate(p._id, {
-      paceIndexHours,
-      paceIndexCost,
-      grossMargin,
-      marginPercent,
-      effectiveCostPerHour,
-    });
-  }
+    return {
+      updateOne: {
+        filter: { _id: p._id },
+        update: { $set: { paceIndexHours, paceIndexCost, grossMargin, marginPercent, effectiveCostPerHour } },
+      },
+    };
+  });
+
+  if (ops.length > 0) await Project.bulkWrite(ops);
 };
 
 // ─── Controller ───────────────────────────────────────────────────────────────
@@ -233,7 +270,7 @@ export const importFile = async (req: AuthRequest, res: Response): Promise<void>
   }
 
   const fileType = req.body.fileType as FileType;
-  if (!["timesheets", "billing", "leave", "budgets"].includes(fileType)) {
+  if (!["timesheets", "billing", "leave"].includes(fileType)) {
     res.status(400).json({ message: "Invalid fileType" });
     return;
   }
@@ -262,14 +299,12 @@ export const importFile = async (req: AuthRequest, res: Response): Promise<void>
     if (fileType === "timesheets") result = await parseTimesheets(rows, importRecord._id as mongoose.Types.ObjectId);
     if (fileType === "billing") result = await parseBilling(rows, importRecord._id as mongoose.Types.ObjectId);
     if (fileType === "leave") result = await parseLeave(rows, importRecord._id as mongoose.Types.ObjectId);
-    if (fileType === "budgets") result = await parseBudgets(rows, importRecord._id as mongoose.Types.ObjectId);
 
     if (fileType === "timesheets") {
       await recalcExpertLoads();
+    } else {
+      await recalculatePaceIndexes();
     }
-
-    // Recalculate pace indexes after any import
-    await recalculatePaceIndexes();
 
     const status = result.errors.length === 0 ? "success" : result.count > 0 ? "partial" : "failed";
     await ImportHistory.findByIdAndUpdate(importRecord._id, {

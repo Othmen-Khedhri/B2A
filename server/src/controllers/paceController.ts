@@ -45,12 +45,14 @@ function computePace(p: {
 
   const hoursProgress = p.budgetHours > 0 ? (p.hoursConsumed / p.budgetHours) * 100 : 0;
   const timeProgress  = Math.min((elapsedDays / contractDays) * 100, 100);
-  const paceRatio     = timeProgress > 0 ? hoursProgress / timeProgress : 0;
+  // Use a minimum of 5% for timeProgress to avoid near-zero division blowup
+  // on projects that just started (e.g. day 1 of a 200-day contract)
+  const paceRatio     = hoursProgress / Math.max(timeProgress, 5);
 
   let paceLabel: PaceLabel;
-  if (paceRatio < 0.9)       paceLabel = "On Track";
-  else if (paceRatio < 1.15) paceLabel = "At Risk";
-  else                       paceLabel = "Burning";
+  if (paceRatio <= 1.0)       paceLabel = "On Track";
+  else if (paceRatio <= 1.25) paceLabel = "At Risk";
+  else                        paceLabel = "Burning";
 
   // Estimated finish based on current daily burn rate
   const dailyBurn      = p.hoursConsumed / elapsedDays;
@@ -87,7 +89,8 @@ export const getPaceReport = async (_req: Request, res: Response): Promise<void>
     const emailMap   = new Map<string, string>();
     managers.forEach((m) => emailMap.set(m._id.toString(), m.email));
 
-    const report: PaceEntry[] = projects.map((p) => {
+    const now = Date.now();
+    const report: PaceEntry[] = projects.filter((p) => p.startDate.getTime() <= now).map((p) => {
       const pace = computePace({
         budgetHours:   p.budgetHours,
         hoursConsumed: p.hoursConsumed,

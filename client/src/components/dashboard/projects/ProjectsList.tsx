@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import {
   FolderKanban, Upload, X, FileSpreadsheet,
-  CheckCircle2, AlertCircle, AlertTriangle, Search, RefreshCw,
+  CheckCircle2, AlertCircle, AlertTriangle, Search, RefreshCw, Trash2,
 } from "lucide-react";
 import api from "../../../services/api";
 import { useToast } from "../../../context/ToastContext";
@@ -68,13 +68,6 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function OverBudgetBadge({ over }: { over: boolean }) {
-  return over ? (
-    <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">OUI</span>
-  ) : (
-    <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">NON</span>
-  );
-}
 
 // ─── Import result type ────────────────────────────────────────────────────────
 
@@ -303,6 +296,7 @@ function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 const TABLE_COLS = [
+  "Sélection",
   "Projet / Code",
   "Client",
   "Type de Mission",
@@ -313,9 +307,8 @@ const TABLE_COLS = [
   "Budget (TND)",
   "Coût Réel (TND)",
   "Marge (TND)",
-  "Rentabilité %",
   "Statut",
-  "Dépassement",
+  "Actions",
 ];
 
 export default function ProjectsList() {
@@ -327,6 +320,8 @@ export default function ProjectsList() {
   const [search, setSearch]       = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showImport, setShowImport] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -355,6 +350,72 @@ export default function ProjectsList() {
 
   const uniqueStatuses = Array.from(new Set(projects.map((p) => p.status)));
 
+  const filteredIds = useMemo(() => filtered.map((p) => p._id), [filtered]);
+  const allFilteredSelected = filteredIds.length > 0 && filteredIds.every((id) => selectedIds.includes(id));
+  const selectedCount = selectedIds.length;
+
+  const handleDeleteProject = useCallback(async (project: DBProject) => {
+    const confirmed = window.confirm(`Supprimer le projet "${project.name}" ? Cette action est irreversible.`);
+    if (!confirmed) return;
+
+    setDeletingId(project._id);
+    try {
+      await api.delete(`/projects/${project._id}`);
+      setProjects((prev) => prev.filter((p) => p._id !== project._id));
+      setSelectedIds((prev) => prev.filter((id) => id !== project._id));
+      toast(`Projet "${project.name}" supprime.`, "success");
+    } catch {
+      toast("Impossible de supprimer ce projet.", "error");
+    } finally {
+      setDeletingId(null);
+    }
+  }, [toast]);
+
+  const toggleSelectAllFiltered = useCallback(() => {
+    setSelectedIds((prev) => {
+      if (allFilteredSelected) {
+        return prev.filter((id) => !filteredIds.includes(id));
+      }
+
+      const next = new Set(prev);
+      filteredIds.forEach((id) => next.add(id));
+      return Array.from(next);
+    });
+  }, [allFilteredSelected, filteredIds]);
+
+  const toggleSelectOne = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id);
+      return [...prev, id];
+    });
+  }, []);
+
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedIds.length === 0) return;
+
+    const confirmed = window.confirm(`Supprimer ${selectedIds.length} projet(s) selectionne(s) ? Cette action est irreversible.`);
+    if (!confirmed) return;
+
+    try {
+      const results = await Promise.allSettled(selectedIds.map((id) => api.delete(`/projects/${id}`)));
+      const deletedIds = selectedIds.filter((_, idx) => results[idx].status === "fulfilled");
+      const failedCount = selectedIds.length - deletedIds.length;
+
+      if (deletedIds.length > 0) {
+        setProjects((prev) => prev.filter((p) => !deletedIds.includes(p._id)));
+      }
+      setSelectedIds([]);
+
+      if (failedCount === 0) {
+        toast(`${deletedIds.length} projet(s) supprime(s).`, "success");
+      } else {
+        toast(`${deletedIds.length} supprime(s), ${failedCount} echec(s).`, "error");
+      }
+    } catch {
+      toast("Suppression multiple impossible.", "error");
+    }
+  }, [selectedIds, toast]);
+
   return (
     <div className="space-y-6">
 
@@ -372,6 +433,15 @@ export default function ProjectsList() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {selectedCount > 0 && (
+            <button
+              onClick={() => void handleBulkDelete()}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl border border-red-200 dark:border-red-900/50 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition"
+            >
+              <Trash2 className="w-4 h-4" />
+              Supprimer la selection ({selectedCount})
+            </button>
+          )}
           <button
             onClick={load}
             disabled={loading}
@@ -428,7 +498,17 @@ export default function ProjectsList() {
           <table className="w-full text-sm min-w-[1200px]">
             <thead>
               <tr className="border-b border-[#CACAC4] dark:border-white/[0.06] bg-[#F2F2F2] dark:bg-[#1A1A1D]">
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-[#6B6B6F] dark:text-[#9E9EA3] whitespace-nowrap">
+                  <input
+                    type="checkbox"
+                    checked={allFilteredSelected}
+                    onChange={toggleSelectAllFiltered}
+                    className="w-4 h-4 accent-[#FFD600] cursor-pointer"
+                    aria-label="Tout selectionner"
+                  />
+                </th>
                 {TABLE_COLS.map((col) => (
+                  col === "Sélection" ? null :
                   <th key={col} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-[#6B6B6F] dark:text-[#9E9EA3] whitespace-nowrap">
                     {col}
                   </th>
@@ -438,7 +518,7 @@ export default function ProjectsList() {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={TABLE_COLS.length} className="px-4 py-16 text-center">
+                  <td colSpan={TABLE_COLS.length + 1} className="px-4 py-16 text-center">
                     <div className="flex flex-col items-center gap-3 text-[#9E9EA3]">
                       <FolderKanban className="w-10 h-10 opacity-30" />
                       <p className="text-sm font-medium">Aucun projet trouvé</p>
@@ -453,13 +533,25 @@ export default function ProjectsList() {
                 </tr>
               ) : (
                 filtered.map((p) => {
-                  const overBudget = p.paceIndexHours > 1;
                   return (
                     <tr
                       key={p._id}
                       onClick={() => navigate(`/dashboard/projects/${p._id}`)}
                       className="border-b border-[#CACAC4]/50 dark:border-white/[0.04] hover:bg-[#FFD600]/5 cursor-pointer transition-colors last:border-0"
                     >
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(p._id)}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            toggleSelectOne(p._id);
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-4 h-4 accent-[#FFD600] cursor-pointer"
+                          aria-label={`Selectionner ${p.name}`}
+                        />
+                      </td>
                       <td className="px-4 py-3 min-w-[180px]">
                         <p className="font-semibold text-[#0D0D0D] dark:text-white truncate max-w-[200px]">{p.name}</p>
                         {p.externalId && (
@@ -485,11 +577,25 @@ export default function ProjectsList() {
                       <td className={`px-4 py-3 text-right font-semibold whitespace-nowrap ${p.grossMargin >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
                         {fmt(p.grossMargin)}
                       </td>
-                      <td className={`px-4 py-3 text-right font-semibold whitespace-nowrap ${p.marginPercent >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
-                        {p.marginPercent.toFixed(1)}%
-                      </td>
                       <td className="px-4 py-3 whitespace-nowrap"><StatusBadge status={p.status} /></td>
-                      <td className="px-4 py-3 whitespace-nowrap"><OverBudgetBadge over={overBudget} /></td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleDeleteProject(p);
+                          }}
+                          disabled={deletingId === p._id}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                        >
+                          {deletingId === p._id ? (
+                            <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                          ) : (
+                            <Trash2 className="w-3.5 h-3.5" />
+                          )}
+                          <span className="text-xs font-medium">Supprimer</span>
+                        </button>
+                      </td>
                     </tr>
                   );
                 })

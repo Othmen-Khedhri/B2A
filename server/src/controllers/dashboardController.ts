@@ -1,11 +1,86 @@
 import { Response } from "express";
+import mongoose from "mongoose";
 import { AuthRequest } from "../middleware/authMiddleware";
 import Project from "../models/Project";
 import Expert from "../models/Expert";
 import TimeEntry from "../models/TimeEntry";
 
+// Build name → coutHoraire map from all experts.
+// Split collaboratorsRaw ("Name1 | Name2 | ...") and average the rates.
+const avgCollabRate = (collaboratorsRaw: string, rateByName: Map<string, number>): number => {
+  const names = (collaboratorsRaw || "")
+    .split(/[|,;]+/)
+    .map((n) => n.trim().toLowerCase())
+    .filter(Boolean);
+  if (names.length === 0) return 0;
+  const rates = names.map((n) => rateByName.get(n) || 0);
+  return rates.reduce((a, b) => a + b, 0) / rates.length;
+};
+
+// Recompute all cost-derived metrics live on every dashboard load.
+// costConsumed = hoursConsumed × avg(coutHoraire of project collaborators).
+const recomputeLiveMetrics = async (): Promise<void> => {
+  const now = Date.now();
+
+  // Build rate lookup once
+  const allExperts = await Expert.find().select("name coutHoraire").lean();
+  const rateByName = new Map<string, number>();
+  for (const e of allExperts) {
+    rateByName.set((e.name || "").trim().toLowerCase(), Number(e.coutHoraire) || 0);
+  }
+
+  const projects = await Project.find()
+    .select("_id startDate endDate budgetHours budgetCost hoursConsumed invoicedAmount collaboratorsRaw")
+    .lean();
+
+  if (projects.length === 0) return;
+
+  const ops = projects.map((p) => {
+    const totalMs = new Date(p.endDate).getTime() - new Date(p.startDate).getTime();
+    // Use 5% minimum elapsed to avoid extreme pace values on projects that just started
+    const elapsedRatio = totalMs > 0
+      ? Math.min(Math.max((now - new Date(p.startDate).getTime()) / totalMs, 0.05), 1)
+      : 1;
+
+    const hoursConsumed = Number(p.hoursConsumed) || 0;
+    const budgetHours   = Number(p.budgetHours)   || 0;
+    const budgetCost    = Number(p.budgetCost)     || 0;
+
+    const rate         = avgCollabRate((p as { collaboratorsRaw?: string }).collaboratorsRaw || "", rateByName);
+    const costConsumed = hoursConsumed * rate;
+    const invoicedAmount = Number((p as { invoicedAmount?: number }).invoicedAmount) || 0;
+
+    const paceIndexHours = budgetHours > 0 ? Math.min((hoursConsumed / budgetHours) / elapsedRatio, 5) : 0;
+    const paceIndexCost  = budgetCost  > 0 ? Math.min((costConsumed  / budgetCost)  / elapsedRatio, 5) : 0;
+
+    const grossMargin = invoicedAmount > 0
+      ? invoicedAmount - costConsumed
+      : budgetCost - costConsumed;
+    const marginPercent = invoicedAmount > 0
+      ? (grossMargin / invoicedAmount) * 100
+      : (costConsumed > 0 && budgetCost > 0 ? (grossMargin / budgetCost) * 100 : 0);
+    const effectiveCostPerHour = hoursConsumed > 0 ? costConsumed / hoursConsumed : 0;
+
+    return {
+      updateOne: {
+        filter: { _id: p._id },
+        update: { $set: { costConsumed, paceIndexHours, paceIndexCost, grossMargin, marginPercent, effectiveCostPerHour } },
+      },
+    };
+  });
+
+  await Project.bulkWrite(ops);
+};
+
 export const getStats = async (req: AuthRequest, res: Response): Promise<void> => {
+  if (mongoose.connection.readyState !== 1) {
+    res.status(503).json({ message: "Database not connected" });
+    return;
+  }
   try {
+    // Always recompute time-sensitive fields before reading stats
+    await recomputeLiveMetrics();
+
     const [
       totalProjects,
       activeProjects,
@@ -47,15 +122,15 @@ export const getStats = async (req: AuthRequest, res: Response): Promise<void> =
         { $limit: 6 },
       ]),
 
-      // Top 10 most profitable projects
-      Project.find({ marginPercent: { $gt: 0 } })
+      // Top 10 projects by profitability (show even when margin <= 0 to avoid empty blocks)
+      Project.find({})
         .sort({ marginPercent: -1 })
         .limit(10)
         .select("name clientName type responsiblePartnerName budgetCost costConsumed grossMargin marginPercent")
         .lean(),
 
-      // Top 10 most over-budget projects
-      Project.find({ paceIndexHours: { $gt: 1 } })
+      // Top 10 projects actually over budget (paceIndexHours > 1.0).
+      Project.find({ paceIndexHours: { $gt: 1.0 } })
         .sort({ paceIndexHours: -1 })
         .limit(10)
         .select("name clientName type responsiblePartnerName budgetCost costConsumed budgetHours hoursConsumed paceIndexHours")

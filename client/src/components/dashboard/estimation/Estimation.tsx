@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Brain, ChevronRight, TrendingUp, Banknote, FolderOpen,
   Sparkles, Users, Gauge, CalendarClock, Layers, Building2, Info,
@@ -7,7 +7,8 @@ import {
   HISTORICAL_PROJECTS, PROJECT_TYPES, CLIENT_SECTORS,
   COMPLEXITY_LEVELS, HOURLY_RATES,
 } from "./historicalData";
-import type { ComplexityLevel } from "./historicalData";
+import type { ComplexityLevel, HistoricalProject } from "./historicalData";
+import api from "../../../services/api";
 
 /* ── helpers ─────────────────────────────────────────────────────────────── */
 
@@ -22,6 +23,18 @@ const percentile = (arr: number[], p: number): number => {
 
 const median = (arr: number[]) => percentile(arr, 50);
 
+const MIN_SAMPLE_SIZE = 10;
+const OUTLIER_TRIM_PCT = 10;
+
+const trimOutliers = (arr: number[], trimPct: number): number[] => {
+  if (arr.length < 3 || trimPct <= 0) return arr;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const trimCount = Math.floor((trimPct / 100) * sorted.length);
+  const remaining = sorted.length - trimCount * 2;
+  if (remaining < 3) return arr;
+  return sorted.slice(trimCount, sorted.length - trimCount);
+};
+
 /* ── Core estimation engine ──────────────────────────────────────────────── */
 
 interface EstimationResult {
@@ -33,7 +46,7 @@ interface EstimationResult {
   avgMarginPct: number;
   overBudgetRate: number;
   confidence: "high" | "medium" | "low";
-  matchLevel: "exact" | "type+complexity" | "type only";
+  matchLevel: "exact" | "type+complexity" | "type only" | "all" | "ml";
   similarCount: number;
   similarProjects: {
     name: string; type: string; sector: string;
@@ -41,24 +54,31 @@ interface EstimationResult {
   }[];
 }
 
+type ApiHistoricalProject = HistoricalProject & {
+  _id?: string;
+  projectId?: string;
+  source?: string;
+};
+
 function runEstimation(
+  dataset: HistoricalProject[],
   projectType: string,
   sector: string,
   complexity: ComplexityLevel,
-  juniorPct: number,
-  midPct: number,
-  seniorPct: number,
+  juniorCount: number,
+  midCount: number,
+  seniorCount: number,
   hasDeadline: boolean,
 ): EstimationResult {
   // 1 — Try exact match: same type + sector + complexity
-  let pool = HISTORICAL_PROJECTS.filter(
+  let pool = dataset.filter(
     p => p.type === projectType && p.sector === sector && p.complexity === complexity
   );
   let matchLevel: EstimationResult["matchLevel"] = "exact";
 
   // 2 — Relax sector if not enough
   if (pool.length < 3) {
-    pool = HISTORICAL_PROJECTS.filter(
+    pool = dataset.filter(
       p => p.type === projectType && p.complexity === complexity
     );
     matchLevel = "type+complexity";
@@ -66,23 +86,34 @@ function runEstimation(
 
   // 3 — Relax complexity too
   if (pool.length < 3) {
-    pool = HISTORICAL_PROJECTS.filter(p => p.type === projectType);
+    pool = dataset.filter(p => p.type === projectType);
     matchLevel = "type only";
   }
 
-  const hours = pool.map(p => p.hReal);
-  const hoursMin    = percentile(hours, 10);
-  const hoursLikely = median(hours);
-  const hoursMax    = percentile(hours, 90);
+  // 4 — Enforce minimum sample size for stability
+  if (pool.length < MIN_SAMPLE_SIZE) {
+    pool = dataset;
+    matchLevel = "all";
+  }
+
+  const hoursRaw = pool.map(p => p.hReal);
+  const hoursTrimmed = trimOutliers(hoursRaw, OUTLIER_TRIM_PCT);
+  const hoursMin    = percentile(hoursTrimmed, 25);
+  const hoursLikely = median(hoursTrimmed);
+  const hoursMax    = percentile(hoursTrimmed, 75);
 
   // Deadline risk buffer: +10% on max
   const maxWithBuffer = hasDeadline ? Math.round(hoursMax * 1.1) : hoursMax;
 
-  // Weighted avg hourly rate from staff mix
-  const avgRate =
-    (juniorPct / 100) * HOURLY_RATES.Junior +
-    (midPct    / 100) * HOURLY_RATES.Senior +  // mid mapped to Senior rate
-    (seniorPct / 100) * HOURLY_RATES.Manager;
+  // Weighted avg hourly rate from staff mix counts
+  const totalStaff = Math.max(juniorCount + midCount + seniorCount, 0);
+  const avgRate = totalStaff > 0
+    ? (
+        (juniorCount * HOURLY_RATES.Junior) +
+        (midCount    * HOURLY_RATES.Senior) +  // mid mapped to Senior rate
+        (seniorCount * HOURLY_RATES.Manager)
+      ) / totalStaff
+    : 0;
 
   const costMin = Math.round(hoursMin    * avgRate);
   const costMax = Math.round(maxWithBuffer * avgRate);
@@ -265,28 +296,87 @@ const ResultPanel = ({ result }: { result: EstimationResult }) => (
 /* ── Main ────────────────────────────────────────────────────────────────── */
 
 const Estimation = () => {
+  const [dataset, setDataset]         = useState<ApiHistoricalProject[]>(HISTORICAL_PROJECTS);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [uploadFile, setUploadFile]   = useState<File | null>(null);
+  const [uploading, setUploading]     = useState(false);
+  const [retraining, setRetraining]   = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [projectType, setProjectType] = useState(PROJECT_TYPES[0]);
   const [sector, setSector]           = useState(CLIENT_SECTORS[0]);
   const [complexity, setComplexity]   = useState<ComplexityLevel>("Moyenne");
-  const [juniorPct, setJuniorPct]     = useState(40);
-  const [midPct, setMidPct]           = useState(40);
+  const [juniorCount, setJuniorCount] = useState(2);
+  const [midCount, setMidCount]       = useState(1);
+  const [seniorCount, setSeniorCount] = useState(1);
   const [hasDeadline, setHasDeadline] = useState(false);
   const [result, setResult]           = useState<EstimationResult | null>(null);
   const [loading, setLoading]         = useState(false);
 
-  const seniorPct = Math.max(0, 100 - juniorPct - midPct);
+  const totalStaff = Math.max(juniorCount + midCount + seniorCount, 0);
 
-  const handleJunior = (v: number) => { setJuniorPct(v); if (v + midPct > 100) setMidPct(100 - v); };
-  const handleMid    = (v: number) => { setMidPct(v);    if (juniorPct + v > 100) setJuniorPct(100 - v); };
-
-  const handleEstimate = () => {
+  const handleEstimate = async () => {
     setLoading(true);
-    // Small delay for UX feedback
-    setTimeout(() => {
-      setResult(runEstimation(projectType, sector, complexity, juniorPct, midPct, seniorPct, hasDeadline));
+    try {
+      const { data } = await api.post<EstimationResult>("/estimations/predict", {
+        projectType,
+        sector,
+        complexity,
+        juniorCount,
+        midCount,
+        seniorCount,
+        hasDeadline,
+      });
+      setResult(data);
+    } catch (err) {
+      console.warn("ML estimation unavailable, using local fallback:", err);
+      setResult(runEstimation(dataset, projectType, sector, complexity, juniorCount, midCount, seniorCount, hasDeadline));
+    } finally {
       setLoading(false);
-    }, 400);
+    }
   };
+
+  const fetchDataset = async () => {
+    try {
+      setDataLoading(true);
+      const { data } = await api.get<ApiHistoricalProject[]>("/estimations/historical");
+      if (Array.isArray(data) && data.length > 0) {
+        setDataset(data);
+      }
+    } finally {
+      setDataLoading(false);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!uploadFile) return;
+    const form = new FormData();
+    form.append("file", uploadFile);
+    try {
+      setUploading(true);
+      await api.post("/estimations/import", form);
+      setUploadFile(null);
+      await fetchDataset();
+      setResult(null);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleRetrain = async () => {
+    try {
+      setRetraining(true);
+      await api.post("/estimations/retrain");
+      await fetchDataset();
+      setResult(null);
+    } finally {
+      setRetraining(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDataset();
+  }, []);
 
   const complexityColors: Record<ComplexityLevel, string> = {
     Faible:   "bg-emerald-500 border-emerald-500 text-white",
@@ -307,12 +397,12 @@ const Estimation = () => {
         <div>
           <h1 className="text-lg font-black text-[#0D0D0D] dark:text-white tracking-tight">Budget Estimation</h1>
           <p className="text-sm text-[#6B6B6F] dark:text-[#9E9EA3]">
-            Based on {HISTORICAL_PROJECTS.length} completed projects — real data
+            Based on {dataset.length} completed projects — real data
           </p>
         </div>
         <span className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/50 shrink-0">
           <Sparkles className="w-3 h-3" />
-          Live — {HISTORICAL_PROJECTS.length} projects
+          Live — {dataset.length} projects
         </span>
       </div>
 
@@ -325,6 +415,50 @@ const Estimation = () => {
           <div className="flex items-center gap-2">
             <Layers className="w-4 h-4 text-[#9E9EA3]" />
             <h2 className="font-bold text-[#0D0D0D] dark:text-white text-sm tracking-tight">Project Parameters</h2>
+          </div>
+
+          {/* Admin data controls */}
+          <div className="rounded-xl border border-[#CACAC4] dark:border-white/[0.06] p-4 bg-[#E2E2DC] dark:bg-[#1A1A1D] space-y-3">
+            <div className="flex items-center gap-2">
+              <Info className="w-3.5 h-3.5 text-[#9E9EA3]" />
+              <p className="text-xs font-bold text-[#6B6B6F] dark:text-[#9E9EA3]">Admin data</p>
+              {dataLoading && <span className="text-[10px] text-[#9E9EA3]">loading…</span>}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx"
+                onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
+                className="hidden"
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-[#CACAC4] dark:border-white/[0.06] text-[#6B6B6F] dark:text-[#9E9EA3] hover:bg-white/70 dark:hover:bg-white/[0.04] transition"
+              >
+                Choose file
+              </button>
+              <span className="text-xs text-[#9E9EA3] truncate max-w-[220px]">
+                {uploadFile ? uploadFile.name : "No file selected"}
+              </span>
+              <button
+                onClick={handleUpload}
+                disabled={!uploadFile || uploading}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-[#CACAC4] dark:border-white/[0.06] text-[#6B6B6F] dark:text-[#9E9EA3] hover:bg-white/70 dark:hover:bg-white/[0.04] transition disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {uploading ? "Uploading…" : "Upload & merge"}
+              </button>
+              <button
+                onClick={handleRetrain}
+                disabled={retraining}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-[#CACAC4] dark:border-white/[0.06] text-[#6B6B6F] dark:text-[#9E9EA3] hover:bg-white/70 dark:hover:bg-white/[0.04] transition disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {retraining ? "Retraining…" : "Recalculate"}
+              </button>
+            </div>
+            <p className="text-[10px] text-[#9E9EA3]">
+              Upload adds new rows; retrain syncs all completed projects.
+            </p>
           </div>
 
           {/* Project type */}
@@ -381,30 +515,27 @@ const Estimation = () => {
 
           {/* Staff mix */}
           <div>
-            <SectionLabel icon={Users}>Staff Mix</SectionLabel>
+            <SectionLabel icon={Users}>Staff Mix (counts)</SectionLabel>
             <div className="space-y-4">
               {[
-                { label: "Junior",  pct: juniorPct, onChange: handleJunior, color: "#FFD600", disabled: false },
-                { label: "Senior",  pct: midPct,    onChange: handleMid,    color: "#9E9EA3", disabled: false },
-                { label: "Manager", pct: seniorPct, onChange: () => {},     color: "#0D0D0D", disabled: true  },
-              ].map(({ label, pct, onChange, color, disabled }) => (
-                <div key={label}>
-                  <div className="flex justify-between text-xs font-semibold mb-1.5">
-                    <span className="text-[#6B6B6F] dark:text-[#9E9EA3]">{label}</span>
-                    <span className="text-[#0D0D0D] dark:text-white tabular-nums">{pct}%</span>
-                  </div>
-                  <div className="relative h-2 bg-[#E2E2DC] dark:bg-white/[0.06] rounded-full mb-2">
-                    <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-200"
-                      style={{ width: `${pct}%`, backgroundColor: color }} />
-                  </div>
-                  <input type="range" min={0} max={100} value={pct}
-                    onChange={e => { onChange(Number(e.target.value)); setResult(null); }}
-                    disabled={disabled}
-                    style={{ accentColor: color }}
-                    className="w-full h-1.5 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                { label: "Junior",  value: juniorCount, onChange: setJuniorCount },
+                { label: "Senior",  value: midCount,    onChange: setMidCount },
+                { label: "Manager", value: seniorCount, onChange: setSeniorCount },
+              ].map(({ label, value, onChange }) => (
+                <label key={label} className="flex items-center justify-between gap-3 text-xs font-semibold">
+                  <span className="text-[#6B6B6F] dark:text-[#9E9EA3]">{label}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={value}
+                    onChange={(e) => { onChange(Math.max(0, Number(e.target.value) || 0)); setResult(null); }}
+                    className="w-20 px-2 py-1 rounded-lg border border-[#CACAC4] dark:border-white/[0.06] bg-white dark:bg-[#2A2A2E] text-[#0D0D0D] dark:text-white text-xs text-right"
                   />
-                </div>
+                </label>
               ))}
+              <div className="text-[10px] text-[#9E9EA3]">
+                Total staff: {totalStaff}
+              </div>
             </div>
           </div>
 
@@ -466,7 +597,7 @@ const Estimation = () => {
                 </p>
               </div>
               <p className="text-xs text-[#9E9EA3]">
-                Powered by {HISTORICAL_PROJECTS.length} real completed projects
+                Powered by {dataset.length} real completed projects
               </p>
             </div>
           )}

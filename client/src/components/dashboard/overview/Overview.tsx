@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Search, TrendingUp, TrendingDown, FolderKanban, Users,
-  AlertTriangle, BarChart2, Clock, Bell, Activity, ChevronDown, ChevronUp,
+  AlertTriangle, BarChart2, Clock, Bell, Activity, ChevronDown, ChevronUp, RefreshCw,
 } from "lucide-react";
 import api from "../../../services/api";
 
@@ -125,14 +125,14 @@ function fmt(n: number, decimals = 0) {
 }
 
 function paceColor(ratio: number) {
-  if (ratio < 0.9) return "bg-green-500";
-  if (ratio <= 1.15) return "bg-amber-400";
+  if (ratio <= 1.0)  return "bg-green-500";
+  if (ratio <= 1.25) return "bg-amber-400";
   return "bg-red-500";
 }
 
 function paceTextColor(ratio: number) {
-  if (ratio < 0.9) return "text-green-600 dark:text-green-400";
-  if (ratio <= 1.15) return "text-amber-600 dark:text-amber-400";
+  if (ratio <= 1.0)  return "text-green-600 dark:text-green-400";
+  if (ratio <= 1.25) return "text-amber-600 dark:text-amber-400";
   return "text-red-600 dark:text-red-400";
 }
 
@@ -227,13 +227,16 @@ function ProjectPaceChecker() {
     setOpen(false);
   }
 
+  // Use raw ratios for the progress bars (shows absolute consumption vs budget)
   const hRatio = selected ? selected.hoursConsumed / Math.max(selected.budgetHours, 1) : 0;
   const cRatio = selected ? selected.costConsumed / Math.max(selected.budgetCost, 1) : 0;
+  // Use time-adjusted pace index for the status badge (matches server-side classification)
+  const paceBadgeRatio = selected ? (selected.paceIndexHours ?? hRatio) : 0;
 
   function PaceBadge({ ratio }: { ratio: number }) {
-    if (ratio < 0.9)
+    if (ratio <= 1.0)
       return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300">On Track</span>;
-    if (ratio <= 1.15)
+    if (ratio <= 1.25)
       return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">At Risk</span>;
     return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">Over Budget</span>;
   }
@@ -291,7 +294,7 @@ function ProjectPaceChecker() {
               <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${statusMap[selected.status] ?? statusMap["on-hold"]}`}>
                 {selected.status}
               </span>
-              <PaceBadge ratio={hRatio} />
+              <PaceBadge ratio={paceBadgeRatio} />
             </div>
             <div>
               <p className="text-lg font-semibold text-[#0D0D0D] dark:text-white leading-tight">{selected.name}</p>
@@ -454,7 +457,7 @@ function Top10DepTable({ data }: { data: DepassementProject[] }) {
             <Th>Manager</Th>
             <Th right>Budget (TND)</Th>
             <Th right>Coût Réel</Th>
-            <Th right>Écart Coût</Th>
+            <Th right>Écart Heures</Th>
             <Th right>H Budget</Th>
             <Th right>H Réel</Th>
             <Th right>Pace Index</Th>
@@ -465,7 +468,7 @@ function Top10DepTable({ data }: { data: DepassementProject[] }) {
             <EmptyRow cols={10} />
           ) : (
             data.map((r, i) => {
-              const ecartCout = r.costConsumed - r.budgetCost;
+              const ecartHeures = r.hoursConsumed - r.budgetHours;
               return (
                 <tr key={r._id} className="hover:bg-[#E2E2DC]/30 dark:hover:bg-white/[0.02]">
                   <Td><span className="font-bold text-red-500">#{i + 1}</span></Td>
@@ -474,7 +477,11 @@ function Top10DepTable({ data }: { data: DepassementProject[] }) {
                   <Td>{r.responsiblePartnerName || "—"}</Td>
                   <Td right>{fmt(r.budgetCost)}</Td>
                   <Td right>{fmt(r.costConsumed)}</Td>
-                  <Td right><span className="text-red-600 dark:text-red-400 font-medium">{fmt(ecartCout)}</span></Td>
+                  <Td right>
+                    <span className={ecartHeures > 0 ? "text-red-600 dark:text-red-400 font-medium" : "text-amber-600 dark:text-amber-400 font-medium"}>
+                      {ecartHeures > 0 ? "+" : ""}{fmt(ecartHeures, 0)}h
+                    </span>
+                  </Td>
                   <Td right>{fmt(r.budgetHours, 0)}h</Td>
                   <Td right>{fmt(r.hoursConsumed, 0)}h</Td>
                   <Td right><span className="text-red-600 dark:text-red-400 font-semibold">{fmt(r.paceIndexHours, 2)}</span></Td>
@@ -760,12 +767,26 @@ function Skeleton() {
 export default function Overview() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  useEffect(() => {
-    api.get<DashboardStats>("/dashboard/stats")
-      .then(({ data }) => setStats(data))
-      .catch(() => setError("Impossible de charger les données du tableau de bord."));
+  const load = useCallback(async (showSpinner = false) => {
+    if (showSpinner) setRefreshing(true);
+    try {
+      // Rebuild hoursConsumed/costConsumed from TimeEntries & BillingEntries first
+      await api.post("/projects/repair-data").catch(() => {/* non-blocking */});
+      const { data } = await api.get<DashboardStats>("/dashboard/stats");
+      setStats(data);
+      setLastUpdated(new Date());
+      setError(null);
+    } catch {
+      setError("Impossible de charger les données du tableau de bord.");
+    } finally {
+      setRefreshing(false);
+    }
   }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   if (error) {
     return (
@@ -779,6 +800,24 @@ export default function Overview() {
 
   return (
     <div className="space-y-6 stagger-children">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-[#0D0D0D] dark:text-white">Vue d'ensemble</h1>
+          {lastUpdated && (
+            <p className="text-xs text-[#9E9EA3] mt-0.5">
+              Mis à jour à {lastUpdated.toLocaleTimeString("fr-TN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+            </p>
+          )}
+        </div>
+        <button
+          onClick={() => load(true)}
+          disabled={refreshing}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl border border-[#CACAC4] dark:border-white/[0.06] text-sm font-semibold text-[#6B6B6F] dark:text-[#9E9EA3] hover:bg-[#E2E2DC] dark:hover:bg-white/[0.04] transition disabled:opacity-50"
+        >
+          <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} />
+          {refreshing ? "Actualisation…" : "Actualiser"}
+        </button>
+      </div>
       <ProjectPaceChecker />
       <KpiRow stats={stats} />
       <Top10RentableTable data={stats.top10Rentable} />

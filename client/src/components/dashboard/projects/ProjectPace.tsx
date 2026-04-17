@@ -84,8 +84,8 @@ function fmtDate(iso: string | null) {
 }
 
 function PaceArrow({ ratio }: { ratio: number }) {
-  if (ratio < 0.9)  return <TrendingDown className="w-4 h-4 text-green-500" />;
-  if (ratio < 1.15) return <Minus className="w-4 h-4 text-amber-500" />;
+  if (ratio <= 1.0)  return <TrendingDown className="w-4 h-4 text-green-500" />;
+  if (ratio <= 1.25) return <Minus className="w-4 h-4 text-amber-500" />;
   return <TrendingUp className="w-4 h-4 text-red-500" />;
 }
 
@@ -373,10 +373,10 @@ export default function ProjectPace() {
           {(["On Track", "At Risk", "Burning"] as PaceLabel[]).map((label) => {
             const cfg = PACE_CONFIG[label];
             const desc = label === "On Track"
-              ? "Ratio < 0.9 — les heures sont consommées proportionnellement au temps écoulé."
+              ? "Ratio ≤ 1.0 — les heures sont consommées au même rythme ou moins vite que le temps écoulé."
               : label === "At Risk"
-              ? "Ratio 0.9 – 1.15 — légère sur-consommation, surveillance recommandée."
-              : "Ratio > 1.15 — consommation critique, risque de dépassement du budget heures.";
+              ? "Ratio 1.0 – 1.25 — légère sur-consommation, surveillance recommandée."
+              : "Ratio > 1.25 — consommation critique, risque de dépassement du budget heures.";
             return (
               <div key={label} className={`flex items-start gap-3 p-4 rounded-xl border ${cfg.bg} ${cfg.border}`}>
                 <span className={`mt-0.5 ${cfg.text}`}>{cfg.icon}</span>

@@ -1,8 +1,16 @@
 import { Request, Response } from "express";
+import mongoose from "mongoose";
 import Project from "../models/Project";
 import TimeEntry from "../models/TimeEntry";
 import { logAudit, diffChanges } from "../utils/auditLogger";
 import { recalcExpertLoads } from "../utils/loadRecalculator";
+import { removeProjectFromEstimation } from "./estimationController";
+import { removeProjectAffectations } from "../utils/affectationSync";
+import { syncProjectConsistency } from "../utils/projectConsistency";
+import { repairProjectData } from "../utils/projectDataRepair";
+
+// Prevent concurrent repair runs from piling up during DB flaps
+let repairInProgress = false;
 
 export const getProjects = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -10,7 +18,11 @@ export const getProjects = async (req: Request, res: Response): Promise<void> =>
     const filter: Record<string, unknown> = {};
     if (status) filter.status = status;
     if (partner) filter.responsiblePartnerName = { $regex: partner, $options: "i" };
-    if (search) filter.name = { $regex: search, $options: "i" };
+    if (search) filter.$or = [
+      { name: { $regex: search, $options: "i" } },
+      { clientName: { $regex: search, $options: "i" } },
+      { externalId: { $regex: search, $options: "i" } },
+    ];
 
     const projects = await Project.find(filter).sort({ paceIndexHours: -1 });
     res.json(projects);
@@ -67,6 +79,12 @@ export const getProjectById = async (req: Request, res: Response): Promise<void>
 export const createProject = async (req: Request, res: Response): Promise<void> => {
   try {
     const project = await Project.create(req.body);
+    await syncProjectConsistency({
+      projectId: project._id.toString(),
+      projectName: project.name,
+      status: project.status,
+    });
+
     logAudit(req, {
       action: "CREATE", resource: "project",
       resourceId: project._id.toString(), resourceName: project.name,
@@ -82,11 +100,22 @@ export const createProject = async (req: Request, res: Response): Promise<void> 
 export const updateProject = async (req: Request, res: Response): Promise<void> => {
   try {
     const before = await Project.findById(req.params.id).lean();
-    const project = await Project.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const project = await Project.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    });
     if (!project) {
       res.status(404).json({ message: "Project not found" });
       return;
     }
+
+    await syncProjectConsistency({
+      projectId: project._id.toString(),
+      projectName: project.name,
+      status: project.status,
+      previousStatus: before?.status,
+    });
+
     logAudit(req, {
       action: "UPDATE", resource: "project",
       resourceId: project._id.toString(), resourceName: project.name,
@@ -108,6 +137,9 @@ export const deleteProject = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
+    await removeProjectFromEstimation(project._id.toString());
+    await removeProjectAffectations(project._id.toString());
+
     // Remove related time entries to keep staff load in sync.
     await TimeEntry.deleteMany({ projectId: project._id });
     await recalcExpertLoads();
@@ -121,5 +153,35 @@ export const deleteProject = async (req: Request, res: Response): Promise<void> 
   } catch (err) {
     console.error("deleteProject error:", err);
     res.status(500).json({ message: "Server error" });
+  }
+};
+
+export const repairProjectsData = async (req: Request, res: Response): Promise<void> => {
+  // Reject immediately if DB is not connected or another repair is already running
+  if (mongoose.connection.readyState !== 1) {
+    res.status(503).json({ message: "Database not connected" });
+    return;
+  }
+  if (repairInProgress) {
+    res.status(409).json({ message: "Repair already in progress" });
+    return;
+  }
+
+  repairInProgress = true;
+  try {
+    const repairStats = await repairProjectData();
+
+    logAudit(req, {
+      action: "UPDATE", resource: "project",
+      description: "Repaired project data links and rebuilt totals from source entries",
+      metadata: repairStats,
+    });
+
+    res.json({ message: "Project data repaired", ...repairStats });
+  } catch (err) {
+    console.error("repairProjectsData error:", err);
+    res.status(500).json({ message: "Server error" });
+  } finally {
+    repairInProgress = false;
   }
 };

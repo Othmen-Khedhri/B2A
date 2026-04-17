@@ -3,7 +3,7 @@ import { useDropzone } from "react-dropzone";
 import { Upload, CheckCircle, XCircle, FileSpreadsheet, Clock } from "lucide-react";
 import api from "../../../services/api";
 
-type FileType = "timesheets" | "billing" | "leave" | "budgets";
+type FileType = "timesheets" | "billing" | "leave" | "projects";
 
 interface HistoryEntry {
   _id: string;
@@ -16,11 +16,23 @@ interface HistoryEntry {
   userName: string;
 }
 
+interface ImportResult {
+  message?: string;
+  recordCount?: number;
+  errors: string[];
+  warnings?: string[];
+  status?: string;
+  // projects import shape
+  created?: number;
+  updated?: number;
+  total?: number;
+}
+
 const FILE_TYPES: { key: FileType; label: string; description: string }[] = [
   { key: "timesheets", label: "Timesheets", description: "Hours per person per project (Teams export)" },
-  { key: "billing", label: "Billing & Costs", description: "Invoice amounts & real costs (Sage export)" },
-  { key: "leave", label: "Leave Records", description: "Absence & leave data (Teams/HR export)" },
-  { key: "budgets", label: "Project Budgets", description: "Budget hours & costs per project" },
+  { key: "billing",    label: "Billing & Costs", description: "Invoice amounts & real costs (Sage export)" },
+  { key: "leave",      label: "Leave Records", description: "Absence & leave data (Teams/HR export)" },
+  { key: "projects",   label: "Projects", description: "Create or update projects from an Excel file" },
 ];
 
 const statusStyle: Record<string, string> = {
@@ -33,7 +45,7 @@ const ImportPage = () => {
   const [fileType, setFileType] = useState<FileType>("timesheets");
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [result, setResult] = useState<{ message: string; recordCount: number; errors: string[]; status: string } | null>(null);
+  const [result, setResult] = useState<ImportResult | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
 
@@ -65,17 +77,24 @@ const ImportPage = () => {
     setResult(null);
     const form = new FormData();
     form.append("file", file);
-    form.append("fileType", fileType);
     try {
-      const { data } = await api.post("/import", form, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      setResult(data);
-      fetchHistory();
+      if (fileType === "projects") {
+        const { data } = await api.post("/projects/import", form, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+        setResult(data);
+      } else {
+        form.append("fileType", fileType);
+        const { data } = await api.post("/import", form, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+        setResult(data);
+        fetchHistory();
+      }
       setFile(null);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message || "Upload failed";
-      setResult({ message: msg, recordCount: 0, errors: [], status: "failed" });
+      setResult({ message: msg, errors: [], status: "failed" });
     } finally {
       setUploading(false);
     }
@@ -84,7 +103,7 @@ const ImportPage = () => {
   return (
     <div className="space-y-14 max-w-5xl mx-auto">
       {/* File type selector */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {FILE_TYPES.map(({ key, label, description }) => (
           <button
             key={key}
@@ -138,7 +157,7 @@ const ImportPage = () => {
       <button
         onClick={handleUpload}
         disabled={!file || uploading}
-        className="w-full py-4 rounded-lg bg-[#FFD600]/10 text-white text-base font-semibold hover:bg-[#FFD600]/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        className="w-full py-4 rounded-lg bg-[#FFD600] text-[#0D0D0D] text-base font-semibold hover:bg-[#e6c200] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
       >
         {uploading ? (
           <>
@@ -154,34 +173,59 @@ const ImportPage = () => {
       </button>
 
       {/* Result */}
-      {result && (
-        <div className={`rounded-lg p-4 flex items-start gap-3 ${
-          result.status === "success"
-            ? "bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800"
-            : result.status === "partial"
-            ? "bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800"
-            : "bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800"
-        }`}>
-          {result.status === "success" ? (
-            <CheckCircle className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
-          ) : (
-            <XCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
-          )}
-          <div>
-            <p className="font-semibold text-[#0D0D0D] dark:text-white">{result.message}</p>
-            {result.errors.length > 0 && (
-              <ul className="mt-2 space-y-1">
-                {result.errors.slice(0, 5).map((e, i) => (
-                  <li key={i} className="text-xs text-red-600 dark:text-red-400">• {e}</li>
-                ))}
-                {result.errors.length > 5 && (
-                  <li className="text-xs text-[#9E9EA3]">...and {result.errors.length - 5} more</li>
-                )}
-              </ul>
+      {result && (() => {
+        const isProjectsResult = result.created !== undefined || result.updated !== undefined;
+        const hasErrors = result.errors.length > 0;
+        const isOk = isProjectsResult
+          ? !hasErrors
+          : result.status === "success";
+        const isPartial = isProjectsResult
+          ? hasErrors && ((result.created ?? 0) + (result.updated ?? 0)) > 0
+          : result.status === "partial";
+
+        const summaryMessage = isProjectsResult
+          ? `${result.created ?? 0} créé(s), ${result.updated ?? 0} mis à jour — ${result.total ?? 0} ligne(s) traitée(s)`
+          : result.message ?? "";
+
+        const colorCls = isOk
+          ? "bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800"
+          : isPartial
+          ? "bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800"
+          : "bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800";
+
+        return (
+          <div className={`rounded-lg p-4 flex items-start gap-3 ${colorCls}`}>
+            {isOk ? (
+              <CheckCircle className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
+            ) : (
+              <XCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
             )}
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-[#0D0D0D] dark:text-white">{summaryMessage}</p>
+              {result.warnings && result.warnings.length > 0 && (
+                <ul className="mt-2 space-y-1">
+                  {result.warnings.slice(0, 5).map((w, i) => (
+                    <li key={i} className="text-xs text-amber-600 dark:text-amber-400">⚠ {w}</li>
+                  ))}
+                  {result.warnings.length > 5 && (
+                    <li className="text-xs text-[#9E9EA3]">...and {result.warnings.length - 5} more warnings</li>
+                  )}
+                </ul>
+              )}
+              {hasErrors && (
+                <ul className="mt-2 space-y-1">
+                  {result.errors.slice(0, 5).map((e, i) => (
+                    <li key={i} className="text-xs text-red-600 dark:text-red-400">• {e}</li>
+                  ))}
+                  {result.errors.length > 5 && (
+                    <li className="text-xs text-[#9E9EA3]">...and {result.errors.length - 5} more errors</li>
+                  )}
+                </ul>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Import history */}
       <div className="bg-white dark:bg-[#2A2A2E] rounded-lg border border-[#CACAC4] dark:border-white/[0.06] shadow-sm overflow-x-auto">

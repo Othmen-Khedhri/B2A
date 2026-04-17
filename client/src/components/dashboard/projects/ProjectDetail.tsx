@@ -3,11 +3,11 @@ import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, AlertTriangle, CheckCircle, Calendar, User, Tag, Hash, FileText } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell,
+  ResponsiveContainer, Cell, LineChart, Line,
 } from "recharts";
 import api from "../../../services/api";
 
-// ─── DB shape ─────────────────────────────────────────────────────────────────
+// ─── Shapes ───────────────────────────────────────────────────────────────────
 
 interface DBProject {
   _id: string;
@@ -34,6 +34,24 @@ interface DBProject {
   startDate: string;
   endDate: string;
   createdAt: string;
+}
+
+interface StaffHour {
+  _id: string;
+  expertName: string;
+  totalHours: number;
+}
+
+interface MonthlyHour {
+  _id: string; // "YYYY-MM"
+  hours: number;
+}
+
+interface ProjectDetailResponse {
+  project: DBProject;
+  timeEntries: unknown[];
+  staffHours: StaffHour[];
+  monthlyHours: MonthlyHour[];
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -72,8 +90,8 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 function PaceBadge({ paceIndex }: { paceIndex: number }) {
-  if (paceIndex < 0.9) return <span className="inline-block px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">On Track</span>;
-  if (paceIndex < 1.15) return <span className="inline-block px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">At Risk</span>;
+  if (paceIndex <= 1.0)  return <span className="inline-block px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">On Track</span>;
+  if (paceIndex <= 1.25) return <span className="inline-block px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">At Risk</span>;
   return <span className="inline-block px-2.5 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">Burning</span>;
 }
 
@@ -109,15 +127,21 @@ export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
-  const [project, setProject] = useState<DBProject | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
+  const [project, setProject]           = useState<DBProject | null>(null);
+  const [staffHours, setStaffHours]     = useState<StaffHour[]>([]);
+  const [monthlyHours, setMonthlyHours] = useState<MonthlyHour[]>([]);
+  const [loading, setLoading]           = useState(true);
+  const [notFound, setNotFound]         = useState(false);
 
   useEffect(() => {
     if (!id) return;
     setLoading(true);
-    api.get<DBProject>(`/projects/${id}`)
-      .then(({ data }) => setProject(data))
+    api.get<ProjectDetailResponse>(`/projects/${id}`)
+      .then(({ data }) => {
+        setProject(data.project);
+        setStaffHours(data.staffHours ?? []);
+        setMonthlyHours(data.monthlyHours ?? []);
+      })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
   }, [id]);
@@ -152,16 +176,24 @@ export default function ProjectDetail() {
   const budgetRatio = project.budgetCost > 0   ? (project.costConsumed  / project.budgetCost)  * 100 : 0;
   const overBudget  = project.paceIndexHours > 1;
 
-  // Budget burn bar data for the chart
   const burnData = [
-    { label: "H Budget",    value: project.budgetHours,   fill: "#94a3b8" },
-    { label: "H Réelles",   value: project.hoursConsumed, fill: hRatio > 100 ? "#ef4444" : "#FFD600" },
+    { label: "H Budget",  value: project.budgetHours,   fill: "#94a3b8" },
+    { label: "H Réelles", value: project.hoursConsumed, fill: hRatio > 100 ? "#ef4444" : "#FFD600" },
   ];
   const costData = [
-    { label: "Budget (TND)",   value: project.budgetCost,   fill: "#94a3b8" },
-    { label: "Coût Réel",      value: project.costConsumed, fill: budgetRatio > 100 ? "#ef4444" : "#22c55e" },
-    { label: "Facturé",        value: project.invoicedAmount, fill: "#6366f1" },
+    { label: "Budget (TND)", value: project.budgetCost,     fill: "#94a3b8" },
+    { label: "Coût Réel",   value: project.costConsumed,   fill: budgetRatio > 100 ? "#ef4444" : "#22c55e" },
+    { label: "Facturé",     value: project.invoicedAmount,  fill: "#6366f1" },
   ];
+
+  // Format monthly data for the line chart
+  const monthlyData = monthlyHours.map((m) => ({
+    month: m._id,
+    heures: m.hours,
+  }));
+
+  // Max hours for staff bar widths
+  const maxStaffHours = staffHours.length > 0 ? staffHours[0].totalHours : 1;
 
   return (
     <div className="space-y-6">
@@ -219,7 +251,6 @@ export default function ProjectDetail() {
       {/* KPI cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
 
-        {/* Hours */}
         <div className="bg-white dark:bg-[#2A2A2E] rounded-2xl border border-[#CACAC4] dark:border-white/[0.06] shadow-sm p-5 space-y-3">
           <p className="text-xs font-semibold uppercase tracking-widest text-[#6B6B6F] dark:text-[#9E9EA3]">Heures</p>
           <div className="flex items-end justify-between">
@@ -230,7 +261,6 @@ export default function ProjectDetail() {
           <p className="text-xs text-[#6B6B6F] dark:text-[#9E9EA3]">{hRatio.toFixed(1)}% du budget consommé</p>
         </div>
 
-        {/* Budget / Coût */}
         <div className="bg-white dark:bg-[#2A2A2E] rounded-2xl border border-[#CACAC4] dark:border-white/[0.06] shadow-sm p-5 space-y-3">
           <p className="text-xs font-semibold uppercase tracking-widest text-[#6B6B6F] dark:text-[#9E9EA3]">Budget / Coût</p>
           <div className="flex items-end justify-between">
@@ -241,7 +271,6 @@ export default function ProjectDetail() {
           <p className="text-xs text-[#6B6B6F] dark:text-[#9E9EA3]">{budgetRatio.toFixed(1)}% du budget utilisé</p>
         </div>
 
-        {/* Marge */}
         <div className="bg-white dark:bg-[#2A2A2E] rounded-2xl border border-[#CACAC4] dark:border-white/[0.06] shadow-sm p-5 space-y-3">
           <p className="text-xs font-semibold uppercase tracking-widest text-[#6B6B6F] dark:text-[#9E9EA3]">Marge brute</p>
           <span className={`text-2xl font-bold ${project.grossMargin >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
@@ -252,7 +281,6 @@ export default function ProjectDetail() {
           </p>
         </div>
 
-        {/* Facturé */}
         <div className="bg-white dark:bg-[#2A2A2E] rounded-2xl border border-[#CACAC4] dark:border-white/[0.06] shadow-sm p-5 space-y-3">
           <p className="text-xs font-semibold uppercase tracking-widest text-[#6B6B6F] dark:text-[#9E9EA3]">Facturé</p>
           <span className="text-2xl font-bold text-[#0D0D0D] dark:text-white">
@@ -320,6 +348,60 @@ export default function ProjectDetail() {
             </BarChart>
           </ResponsiveContainer>
         </div>
+      </div>
+
+      {/* Monthly hours trend + Staff breakdown */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        {/* Monthly trend */}
+        {monthlyData.length > 0 && (
+          <div className="bg-white dark:bg-[#2A2A2E] rounded-2xl border border-[#CACAC4] dark:border-white/[0.06] shadow-sm p-6 space-y-4">
+            <h3 className="text-base font-bold text-[#0D0D0D] dark:text-white">Heures par mois</h3>
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={monthlyData} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(150,150,150,0.12)" vertical={false} />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "var(--color-text-tertiary)" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "var(--color-text-tertiary)" }} axisLine={false} tickLine={false} />
+                <Tooltip
+                  cursor={{ stroke: "rgba(255,214,0,0.3)" }}
+                  contentStyle={{ backgroundColor: "var(--color-bg-sidebar)", border: "1px solid var(--color-border-default)", borderRadius: "10px", fontSize: "12px" }}
+                  formatter={(v) => [`${v} h`, "Heures"]}
+                />
+                <Line type="monotone" dataKey="heures" stroke="#FFD600" strokeWidth={2} dot={{ fill: "#FFD600", r: 3 }} activeDot={{ r: 5 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* Staff hours breakdown */}
+        {staffHours.length > 0 && (
+          <div className="bg-white dark:bg-[#2A2A2E] rounded-2xl border border-[#CACAC4] dark:border-white/[0.06] shadow-sm p-6">
+            <h3 className="text-base font-bold text-[#0D0D0D] dark:text-white mb-4">Heures par collaborateur</h3>
+            <div className="space-y-3">
+              {staffHours.map((s) => {
+                const pct = (s.totalHours / maxStaffHours) * 100;
+                return (
+                  <div key={s._id} className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-[#0D0D0D] dark:text-white truncate max-w-[200px]">
+                        {s.expertName || "Inconnu"}
+                      </span>
+                      <span className="text-sm font-semibold text-[#0D0D0D] dark:text-white shrink-0 ml-3">
+                        {fmt(s.totalHours)} h
+                      </span>
+                    </div>
+                    <div className="w-full bg-[#CACAC4]/30 dark:bg-white/[0.06] rounded-full h-1.5">
+                      <div
+                        className="h-1.5 rounded-full bg-[#FFD600] transition-all"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

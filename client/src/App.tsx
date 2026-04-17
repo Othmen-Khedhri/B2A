@@ -27,6 +27,7 @@ const ClientProfile = lazy(() => import('./components/dashboard/clients/ClientPr
 const ProjectPace   = lazy(() => import('./components/dashboard/projects/ProjectPace'));
 const AuditLogs     = lazy(() => import('./components/dashboard/audit/AuditLogs'));
 const AdminProfile  = lazy(() => import('./components/dashboard/profile/AdminProfile'));
+const TeamBuilder   = lazy(() => import('./components/dashboard/teambuilder/TeamBuilder'));
 
 function PageLoader() {
   return (
@@ -73,8 +74,9 @@ function App() {
                   <Route path="clients" element={<Suspense fallback={<PageLoader />}><Clients /></Suspense>} />
                   <Route path="clients/:id" element={<Suspense fallback={<PageLoader />}><ClientProfile /></Suspense>} />
                   <Route path="pace" element={<Suspense fallback={<PageLoader />}><ProjectPace /></Suspense>} />
-                  <Route path="audit-logs" element={<Suspense fallback={<PageLoader />}><AuditLogs /></Suspense>} />
-                  <Route path="profile"   element={<Suspense fallback={<PageLoader />}><AdminProfile /></Suspense>} />
+                  <Route path="audit-logs"    element={<Suspense fallback={<PageLoader />}><AuditLogs /></Suspense>} />
+                  <Route path="profile"      element={<Suspense fallback={<PageLoader />}><AdminProfile /></Suspense>} />
+                  <Route path="team-builder" element={<Suspense fallback={<PageLoader />}><TeamBuilder /></Suspense>} />
                 </Route>
 
                 {/* Catch-all */}
