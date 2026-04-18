@@ -3,6 +3,10 @@
     {
       "source": "/api/:path*",
       "destination": "https://b2a-api-7gvl.onrender.com/api/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }
