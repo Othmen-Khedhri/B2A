@@ -9,6 +9,7 @@ import {
 import api from "../../../services/api";
 import { useLanguage } from "../../../context/LanguageContext";
 import { useAuth } from "../../../context/AuthContext";
+import { getAvatarUrl } from "../../../utils/getAvatarUrl";
 
 interface StaffMember {
   _id: string;
@@ -311,7 +312,7 @@ const StaffProfile = () => {
             >
               {member.avatarUrl ? (
                 <img
-                  src={`http://localhost:5000${member.avatarUrl}`}
+                  src={getAvatarUrl(member.avatarUrl)!}
                   alt={member.name}
                   className="w-full h-full object-cover"
                 />

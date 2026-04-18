@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import api from "../../../services/api";
 import MonthPicker from "../../ui/MonthPicker";
+import { getAvatarUrl } from "../../../utils/getAvatarUrl";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -155,7 +156,7 @@ function MiniAvatar({ expert }: { expert: DBExpert }) {
   if (expert.avatarUrl) {
     return (
       <img
-        src={`http://localhost:5000${expert.avatarUrl}`}
+        src={getAvatarUrl(expert.avatarUrl)!}
         alt={expert.name}
         title={expert.name}
         className="w-7 h-7 rounded-full object-cover border-2 border-white dark:border-[#2A2A2E]"
@@ -469,7 +470,7 @@ export default function Assignments() {
                   <div className="shrink-0">
                     {expert.avatarUrl ? (
                       <img
-                        src={`http://localhost:5000${expert.avatarUrl}`}
+                        src={getAvatarUrl(expert.avatarUrl)!}
                         alt={expert.name}
                         className="w-9 h-9 rounded-full object-cover"
                       />
@@ -741,7 +742,7 @@ export default function Assignments() {
                           <div className="flex items-center gap-2">
                             {/* Mini avatar */}
                             {expert.avatarUrl ? (
-                              <img src={`http://localhost:5000${expert.avatarUrl}`} alt="" className="w-6 h-6 rounded-full object-cover shrink-0" />
+                              <img src={getAvatarUrl(expert.avatarUrl)!} alt="" className="w-6 h-6 rounded-full object-cover shrink-0" />
                             ) : (
                               <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[8px] font-bold text-white shrink-0 ${expertColor(expert.name)}`}>
                                 {expertInitials(expert.name)}

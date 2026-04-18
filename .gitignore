@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build outputs
+client/dist/
+server/dist/
+
+# Environment variables — NEVER commit these
+.env
+.env.local
+.env.production
+server/.env
+server/ml/.env
+client/.env
+client/.env.local
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Uploads (user-uploaded files — keep out of git)
+server/uploads/*
+!server/uploads/.gitkeep

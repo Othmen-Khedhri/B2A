@@ -4,6 +4,7 @@ import { Building2, Plus, Search, Pencil, Trash2, X, Phone, Mail, MapPin, FileTe
 import { useLanguage } from "../../../context/LanguageContext";
 import { useNavigate } from "react-router-dom";
 import api from "../../../services/api";
+import { useDebounce } from "../../../hooks/useDebounce";
 
 interface Client {
   _id: string;
@@ -183,6 +184,7 @@ const Clients = () => {
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search, 300);
 
   // Modal state
   const [showForm, setShowForm] = useState(false);
@@ -205,14 +207,14 @@ const Clients = () => {
   const fetchClients = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await api.get("/clients", { params: search ? { search } : {} });
+      const { data } = await api.get("/clients", { params: debouncedSearch ? { search: debouncedSearch } : {} });
       setClients(data);
     } catch {
       // silently ignore — empty list shown
     } finally {
       setLoading(false);
     }
-  }, [search]);
+  }, [debouncedSearch]);
 
   useEffect(() => { fetchClients(); }, [fetchClients]);
 

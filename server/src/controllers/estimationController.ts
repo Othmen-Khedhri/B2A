@@ -155,7 +155,10 @@ export const predictEstimationMl = async (req: Request, res: Response): Promise<
 
     const mlResponse = await fetch(`${ML_API_URL}/predict`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(process.env.ML_SECRET ? { "X-ML-Secret": process.env.ML_SECRET } : {}),
+      },
       body: JSON.stringify(mlPayload),
     });
 

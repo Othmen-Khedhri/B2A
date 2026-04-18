@@ -134,11 +134,7 @@ export const sendPaceAlerts = async (req: Request, res: Response): Promise<void>
 
     const projects = await Project.find(filter);
 
-    // All admin emails
-    const admins      = await Expert.find({ role: { $in: ["admin", "manager"] } }).select("email name");
-    const adminEmails = admins.map((a) => a.email).filter(Boolean);
-
-    // Manager email map
+    // Manager email map (only the responsible partners of the queried projects)
     const partnerIds = projects.map((p) => p.responsiblePartnerId).filter((id): id is NonNullable<typeof id> => id != null);
     const managers   = await Expert.find({ _id: { $in: partnerIds } }).select("_id email name");
     const managerMap = new Map<string, string>();
@@ -163,7 +159,7 @@ export const sendPaceAlerts = async (req: Request, res: Response): Promise<void>
 
       if (pace.paceLabel === "On Track") continue;
 
-      const recipientSet = new Set<string>(adminEmails);
+      const recipientSet = new Set<string>();
       if (project.responsiblePartnerId) {
         const mEmail = managerMap.get(project.responsiblePartnerId.toString());
         if (mEmail) recipientSet.add(mEmail);

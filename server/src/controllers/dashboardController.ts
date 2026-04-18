@@ -279,3 +279,54 @@ export const getStats = async (req: AuthRequest, res: Response): Promise<void> =
     res.status(500).json({ message: "Server error" });
   }
 };
+
+/**
+ * GET /api/dashboard/notifications
+ * Returns real-time notification data for the Header bell icon.
+ */
+export const getNotifications = async (_req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const [overBudget, burnoutStaff, pendingEntries, atRisk] = await Promise.all([
+      // Top 5 projects where paceIndexHours > 1.2 (Burning)
+      Project.find({ paceIndexHours: { $gt: 1.2 } })
+        .sort({ paceIndexHours: -1 })
+        .limit(5)
+        .select("_id name clientName paceIndexHours")
+        .lean(),
+
+      // All staff currently flagged for burnout
+      Expert.find({ "burnoutFlags.flagged": true })
+        .select("_id name burnoutFlags")
+        .lean(),
+
+      // Pending timesheet count + top 3 experts
+      TimeEntry.aggregate([
+        { $match: { validationStatus: "pending" } },
+        { $group: { _id: "$expertId", expertName: { $first: "$expertName" }, count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+      ]),
+
+      // Top 5 at-risk projects (paceIndexHours between 1.0 and 1.2)
+      Project.find({ paceIndexHours: { $gt: 1.0, $lte: 1.2 } })
+        .sort({ paceIndexHours: -1 })
+        .limit(5)
+        .select("_id name clientName paceIndexHours")
+        .lean(),
+    ]);
+
+    const pendingCount  = pendingEntries.reduce((s: number, e: { count: number }) => s + e.count, 0);
+    const topExperts    = (pendingEntries as { expertName: string; count: number }[])
+      .slice(0, 3)
+      .map((e) => ({ name: e.expertName, count: e.count }));
+
+    res.json({
+      overBudget,
+      pendingTimesheets: { count: pendingCount, topExperts },
+      burnoutStaff,
+      atRisk,
+    });
+  } catch (err) {
+    console.error("getNotifications error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};

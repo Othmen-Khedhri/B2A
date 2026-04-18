@@ -7,6 +7,7 @@ import {
 import api from "../../../services/api";
 import { useAuth } from "../../../context/AuthContext";
 import { useToast } from "../../../context/ToastContext";
+import { getAvatarUrl } from "../../../utils/getAvatarUrl";
 import DatePicker from "../../ui/DatePicker";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -265,7 +266,7 @@ export default function AdminProfile() {
               <div className="w-24 h-24 rounded-2xl border-4 border-white dark:border-[#2A2A2E] overflow-hidden shadow-lg bg-[#FFD600]">
                 {profile?.avatarUrl ? (
                   <img
-                    src={`http://localhost:5000${profile.avatarUrl}`}
+                    src={getAvatarUrl(profile.avatarUrl)!}
                     alt={profile.name}
                     className="w-full h-full object-cover"
                   />

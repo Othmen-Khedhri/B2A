@@ -14,9 +14,10 @@ interface MonthPickerProps {
   value: string;                   // "YYYY-MM"
   onChange: (v: string) => void;
   className?: string;
+  allowFuture?: boolean;           // When true, future months are selectable
 }
 
-export default function MonthPicker({ value, onChange, className = "" }: MonthPickerProps) {
+export default function MonthPicker({ value, onChange, className = "", allowFuture = false }: MonthPickerProps) {
   const [open, setOpen]         = useState(false);
   const ref                     = useRef<HTMLDivElement>(null);
   const today                   = new Date();
@@ -46,7 +47,7 @@ export default function MonthPicker({ value, onChange, className = "" }: MonthPi
     ? `${MONTHS_FR[selectedMonth!]} ${selectedYear}`
     : "Sélectionner…";
 
-  const isFuture   = (m: number) => viewYear > todayYear || (viewYear === todayYear && m > todayMonth);
+  const isFuture   = (m: number) => !allowFuture && (viewYear > todayYear || (viewYear === todayYear && m > todayMonth));
   const isSelected = (m: number) => viewYear === selectedYear && m === selectedMonth;
 
   const select = (m: number) => {
@@ -97,7 +98,7 @@ export default function MonthPicker({ value, onChange, className = "" }: MonthPi
             <button
               type="button"
               onClick={() => setViewYear((y) => y + 1)}
-              disabled={viewYear >= todayYear}
+              disabled={!allowFuture && viewYear >= todayYear}
               className="p-1.5 rounded-lg hover:bg-[#F2F2F2] dark:hover:bg-white/[0.06] text-[#6B6B6F] dark:text-[#9E9EA3] transition-colors disabled:opacity-25 disabled:cursor-not-allowed"
             >
               <ChevronRight className="w-4 h-4" />

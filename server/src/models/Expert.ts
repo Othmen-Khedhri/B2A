@@ -127,6 +127,7 @@ const ExpertSchema = new Schema<IExpert>(
 
 // Indexes from README spec
 ExpertSchema.index({ level: 1, currentLoad: -1 });
+ExpertSchema.index({ "burnoutFlags.flagged": 1 }); // used in burnout queries
 
 // Hash password before saving
 ExpertSchema.pre("save", async function () {

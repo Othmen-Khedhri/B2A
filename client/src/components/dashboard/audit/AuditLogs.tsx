@@ -500,25 +500,42 @@ export default function AuditLogs() {
               >
                 ‹
               </button>
-              {Array.from({ length: Math.min(pages, 7) }, (_, i) => {
-                const p = i + 1;
-                return (
-                  <button
-                    key={p}
-                    onClick={() => setPage(p)}
-                    style={{
-                      padding: "6px 12px", borderRadius: "6px", fontSize: "13px",
-                      backgroundColor: p === page ? "#FFD600" : "var(--color-label-bg)",
-                      border: "1px solid var(--color-border-default)",
-                      color: p === page ? "#0D0D0D" : "var(--color-text-primary)",
-                      fontWeight: p === page ? 700 : 400,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {p}
-                  </button>
-                );
-              })}
+              {(() => {
+                // Build visible page numbers: first, last, current-1, current, current+1 + ellipsis
+                const visible = new Set<number>();
+                visible.add(1);
+                visible.add(pages);
+                for (let p = Math.max(1, page - 1); p <= Math.min(pages, page + 1); p++) visible.add(p);
+                const sorted = Array.from(visible).sort((a, b) => a - b);
+
+                const buttons: React.ReactNode[] = [];
+                let prev = 0;
+                for (const p of sorted) {
+                  if (p - prev > 1) {
+                    buttons.push(
+                      <span key={`ellipsis-${p}`} style={{ padding: "6px 8px", fontSize: "13px", color: "var(--color-text-tertiary)" }}>…</span>
+                    );
+                  }
+                  buttons.push(
+                    <button
+                      key={p}
+                      onClick={() => setPage(p)}
+                      style={{
+                        padding: "6px 12px", borderRadius: "6px", fontSize: "13px",
+                        backgroundColor: p === page ? "#FFD600" : "var(--color-label-bg)",
+                        border: "1px solid var(--color-border-default)",
+                        color: p === page ? "#0D0D0D" : "var(--color-text-primary)",
+                        fontWeight: p === page ? 700 : 400,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {p}
+                    </button>
+                  );
+                  prev = p;
+                }
+                return buttons;
+              })()}
               <button
                 onClick={() => setPage((p) => Math.min(pages, p + 1))}
                 disabled={page === pages}

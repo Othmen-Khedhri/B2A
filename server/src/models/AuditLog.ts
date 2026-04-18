@@ -56,5 +56,6 @@ auditLogSchema.index({ action: 1 });
 auditLogSchema.index({ resource: 1 });
 auditLogSchema.index({ userId: 1 });
 auditLogSchema.index({ createdAt: -1 });
+auditLogSchema.index({ userName: 1 }); // used in search filter
 
 export default mongoose.model<IAuditLog>("AuditLog", auditLogSchema);

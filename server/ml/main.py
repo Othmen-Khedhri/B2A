@@ -4,6 +4,7 @@ FastAPI microservice exposing /predict and /retrain endpoints.
 Run with: uvicorn main:app --port 8000 --reload
 """
 
+import os
 import pickle
 import numpy as np
 import pandas as pd
@@ -11,9 +12,17 @@ from pathlib import Path
 from typing import Optional
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+
+# ── ML Secret validation ───────────────────────────────────────────────────────
+ML_SECRET = os.environ.get("ML_SECRET", "")
+
+def verify_ml_secret(x_ml_secret: Optional[str] = Header(default=None)) -> None:
+    """Dependency that validates the X-ML-Secret header when ML_SECRET is set."""
+    if ML_SECRET and x_ml_secret != ML_SECRET:
+        raise HTTPException(status_code=403, detail="Invalid ML secret")
 
 from preprocessing import (
     COMPLEXITY_MAP, SEGMENT_CATEGORIES, SECTEUR_CATEGORIES,
@@ -182,7 +191,7 @@ def build_feature_vector(req: PredictRequest) -> np.ndarray:
 
 # ── Predict endpoint ───────────────────────────────────────────────────────────
 
-@app.post("/predict", response_model=PredictResponse)
+@app.post("/predict", response_model=PredictResponse, dependencies=[__import__("fastapi").Depends(verify_ml_secret)])
 def predict(req: PredictRequest):
     try:
         vector, heures_est, budget_est = build_feature_vector(req)
@@ -273,7 +282,7 @@ def predict(req: PredictRequest):
 
 # ── Retrain endpoint ───────────────────────────────────────────────────────────
 
-@app.post("/retrain")
+@app.post("/retrain", dependencies=[__import__("fastapi").Depends(verify_ml_secret)])
 async def retrain(file: UploadFile = File(...)):
     """
     Accept a new Excel file, merge with existing data, retrain models.

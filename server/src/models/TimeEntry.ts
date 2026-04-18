@@ -34,5 +34,6 @@ const TimeEntrySchema = new Schema<ITimeEntry>(
 // Indexes from README
 TimeEntrySchema.index({ projectId: 1, date: -1 });
 TimeEntrySchema.index({ expertId: 1, date: -1 });
+TimeEntrySchema.index({ validationStatus: 1 }); // used in dashboard pending alerts query
 
 export default mongoose.model<ITimeEntry>("TimeEntry", TimeEntrySchema, "timeEntries");

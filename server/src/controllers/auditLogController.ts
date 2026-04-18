@@ -1,4 +1,5 @@
 import { Response } from "express";
+import mongoose from "mongoose";
 import AuditLog from "../models/AuditLog";
 import { AuthRequest } from "../middleware/authMiddleware";
 
@@ -6,6 +7,14 @@ import { AuthRequest } from "../middleware/authMiddleware";
  * GET /api/audit-logs
  * Query: page, limit, action, resource, userId, search, dateFrom, dateTo
  */
+/** Sanitize a string query param — reject MongoDB operators and trim whitespace. */
+function sanitizeStr(val: unknown): string | null {
+  if (!val) return null;
+  const s = String(val).trim();
+  if (s.includes("$") || s.includes(".")) return null; // reject MongoDB operators
+  return s || null;
+}
+
 export const getAuditLogs = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const page    = Math.max(1, parseInt(String(req.query.page  ?? 1)));
@@ -14,9 +23,18 @@ export const getAuditLogs = async (req: AuthRequest, res: Response): Promise<voi
 
     const filter: Record<string, unknown> = {};
 
-    if (req.query.action)   filter.action   = req.query.action;
-    if (req.query.resource) filter.resource = req.query.resource;
-    if (req.query.userId)   filter.userId   = req.query.userId;
+    const actionVal   = sanitizeStr(req.query.action);
+    const resourceVal = sanitizeStr(req.query.resource);
+    if (actionVal)   filter.action   = actionVal;
+    if (resourceVal) filter.resource = resourceVal;
+    if (req.query.userId) {
+      try {
+        filter.userId = new mongoose.Types.ObjectId(String(req.query.userId));
+      } catch {
+        res.status(400).json({ message: "Invalid userId format" });
+        return;
+      }
+    }
 
     if (req.query.dateFrom || req.query.dateTo) {
       const dateFilter: Record<string, Date> = {};

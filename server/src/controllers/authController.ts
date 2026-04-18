@@ -8,10 +8,7 @@ import LoginAttempt from "../models/LoginAttempt";
 import { AuthRequest } from "../middleware/authMiddleware";
 import { Role } from "../models/Expert";
 import { logAudit } from "../utils/auditLogger";
-
-// ─── Constants ─────────────────────────────────────────────────────────────────
-const MAX_LOGIN_ATTEMPTS = 5;
-const LOCK_DURATION_MS   = 15 * 60 * 1000; // 15 minutes
+import { MAX_LOGIN_ATTEMPTS, LOCK_DURATION_MS } from "../config/constants";
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -20,12 +17,15 @@ const signAccessToken = (id: string, role: Role, email: string) =>
     expiresIn: "8h",
   });
 
-/** Embeds a device fingerprint (fp) so the refresh endpoint can bind the token
- *  to the originating IP + user-agent. */
-const signRefreshToken = (id: string, fingerprint: string) =>
-  jwt.sign({ id, fp: fingerprint }, process.env.JWT_REFRESH_SECRET as string, {
-    expiresIn: "7d",
-  });
+/** Embeds a device fingerprint (fp) only when ENABLE_DEVICE_FINGERPRINT=true.
+ *  Disabled by default for mobile compatibility (4G/5G IP changes). */
+const signRefreshToken = (id: string, fingerprint: string) => {
+  const payload: Record<string, unknown> = { id };
+  if (process.env.ENABLE_DEVICE_FINGERPRINT === "true") {
+    payload.fp = fingerprint;
+  }
+  return jwt.sign(payload, process.env.JWT_REFRESH_SECRET as string, { expiresIn: "7d" });
+};
 
 /** SHA-256 of "ip|user-agent" — stored as a claim in the refresh JWT. */
 const buildFingerprint = (req: Request): string =>

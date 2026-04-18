@@ -8,6 +8,7 @@ import {
 import api from "../../../services/api";
 import { useLanguage } from "../../../context/LanguageContext";
 import { useAuth } from "../../../context/AuthContext";
+import { getAvatarUrl } from "../../../utils/getAvatarUrl";
 
 type Tab = "collaborator" | "manager" | "admin" | "worker";
 
@@ -138,7 +139,7 @@ const StaffCard = ({
         <div className="flex items-start gap-4">
           {member.avatarUrl ? (
             <img
-              src={`http://localhost:5000${member.avatarUrl}`}
+              src={getAvatarUrl(member.avatarUrl)!}
               alt={member.name}
               className="w-14 h-14 rounded-2xl object-cover shrink-0"
             />

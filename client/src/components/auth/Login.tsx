@@ -19,8 +19,8 @@ function validate(email: string, password: string): FieldErrors {
   }
   if (!password) {
     errors.password = "Le mot de passe est requis.";
-  } else if (password.length < 6) {
-    errors.password = "Minimum 6 caractères.";
+  } else if (password.length < 8) {
+    errors.password = "Minimum 8 caractères.";
   }
   return errors;
 }

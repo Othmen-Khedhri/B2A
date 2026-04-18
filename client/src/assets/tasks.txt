@@ -1,0 +1,545 @@
+You are a senior full-stack engineer performing a complete audit, cleanup, and enhancement of the B2A Smart-Resource Platform. You have access to the full codebase and the official project specifications document (specs.md). Your job is to reconcile the actual code against the specs, fix everything that is wrong, implement everything that is missing, and recommend improvements.
+
+═══════════════════════════════════════════════════════════════
+PLATFORM CONTEXT
+═══════════════════════════════════════════════════════════════
+
+B2A Smart-Resource is a resource management dashboard for an accounting/consulting firm.
+
+STACK:
+- Frontend:  React 19 + TypeScript + Vite + Tailwind CSS 4 + React Router 7
+- Backend:   Node.js + Express 5 + TypeScript + MongoDB (Mongoose 9)
+- ML:        Python 3.11 + FastAPI + scikit-learn (GradientBoosting + KNN)
+- Auth:      JWT (access 8h + refresh 7d) + sessionStorage + BroadcastChannel
+
+KEY MODELS: Expert, Project, Client, Affectation, TimeEntry, BillingEntry,
+            Leave, AuditLog, EstimationProject, EstimationMeta,
+            ImportHistory, BlacklistedToken, LoginAttempt
+
+KEY UTILS:  auditLogger, loadRecalculator, affectationSync,
+            projectConsistency, projectDataRepair
+
+═══════════════════════════════════════════════════════════════
+TASK 1 — SPEC VS CODE GAP ANALYSIS
+═══════════════════════════════════════════════════════════════
+
+Compare every spec section against the actual code. Report each gap as:
+[GAP] File: line — Spec says X, code does Y
+
+Specifically check:
+
+1. MISSING MODELS
+   - Affectation model (affectations collection) — does it exist?
+   - EstimationProject model — does it exist?
+   - EstimationMeta model — does it exist?
+   If missing, create them exactly as specified.
+
+2. MISSING ROUTES (register all in index.ts)
+   - /api/affectations — affectationRoutes
+   - /api/estimations  — estimationRoutes (not /api/estimation)
+   Check all routes in spec section 6 are registered.
+
+3. MISSING CONTROLLERS
+   - affectationController.ts with: getAll, getByExpert, getByProject, rebuild
+   - estimationController.ts with: getHistorical, getCollaboratorsContext,
+     predict, importData, retrain
+   Compare spec section 6 against existing controller files.
+
+4. MISSING UTILITY FILES
+   - affectationSync.ts — rebuildAllAffectations()
+   - projectConsistency.ts
+   - projectDataRepair.ts — repairAllProjects()
+   If missing, create them per spec section 15.
+
+5. MISSING FRONTEND PAGES
+   - TeamBuilder.tsx at /dashboard/team-builder
+     Spec section 8 describes it fully:
+     * Left panel: collaborator list with search, level filter, experience filter
+     * Experience = derived from Affectation records for same mission type
+     * Each row: avatar initial, name, level badge, coutHoraire rate, Nx exp badge
+     * Click to select/deselect
+     * Right panel: team stats (count, avg rate, exp ratio), level breakdown bars,
+       cost preview for 40/80/120/160h, selected team list with remove buttons
+   - Implement it fully. It calls GET /api/estimations/collaborators-context?projectType=X
+     and GET /api/staff
+
+6. MISSING SIDEBAR ENTRY
+   - TeamBuilder must appear in Sidebar.tsx nav items
+   - Route: /dashboard/team-builder
+   - Icon: Users2 from lucide-react
+   - Translation key: "nav.teambuilder"
+   - Add translation in both EN ("Team Builder") and FR ("Constructeur d'équipe")
+   - Roles: null (all roles can access)
+
+7. APP.TSX ROUTING
+   - Add lazy import for TeamBuilder
+   - Add route: /dashboard/team-builder
+
+8. ESTIMATION ROUTE NAMING
+   - Spec says /api/estimations (plural) not /api/estimation
+   - estimationController must have all 5 endpoints from spec section 6
+   - getCollaboratorsContext: GET /api/estimations/collaborators-context?projectType=X
+     Returns: staff array with { _id, name, level, coutHoraire, experienceCount }
+     where experienceCount = count of Affectation records for that expert
+     where project.type matches projectType query param
+
+═══════════════════════════════════════════════════════════════
+TASK 2 — BUG FIXES (fix every one, show before/after diff)
+═══════════════════════════════════════════════════════════════
+
+BUG 1 — Assignments matrix ReferenceError
+File: client/src/components/dashboard/assignments/Assignments.tsx
+In the matrix tbody, the variable `loadPct` is used inside the sticky name cell
+but it is defined OUTSIDE the row map scope (defined once before the map).
+Each row needs its own `loadPct` computed from that row's expert.currentLoad.
+Fix: move `const loadPct = loadToPct(expert.currentLoad)` inside the row map.
+
+BUG 2 — currentLoad counts all-time hours, not current month
+File: server/src/utils/loadRecalculator.ts
+recalcExpertLoads() aggregates ALL TimeEntry hours ever. It should only count
+hours for the current calendar month (date >= first day of current month).
+Fix: add $match stage: { date: { $gte: startOfCurrentMonth } } before the group.
+
+BUG 3 — AuditLog userId query type mismatch
+File: server/src/controllers/auditLogController.ts
+req.query.userId is a string but AuditLog.userId is ObjectId.
+The filter { userId: req.query.userId } never matches any document.
+Fix: import mongoose, wrap with new mongoose.Types.ObjectId(req.query.userId).
+Add try/catch for invalid ObjectId format.
+
+BUG 4 — ProjectDetail response shape mismatch
+File: client/src/components/dashboard/projects/ProjectDetail.tsx
+getProjectById returns { project, timeEntries, staffHours, monthlyHours }
+but the frontend does: api.get(...).then(({ data }) => setProject(data))
+treating data as DBProject directly. data.name etc. are all undefined.
+Fix: destructure correctly: const { project, timeEntries, staffHours, monthlyHours } = data
+then setProject(project) and store the rest in separate state variables.
+Add timeEntries table and staffHours breakdown to the UI.
+
+BUG 5 — Login password validation inconsistency
+File: client/src/components/auth/Login.tsx
+Frontend validates minimum 6 chars but backend requires minimum 8.
+Fix: change the frontend validation to minimum 8 characters.
+
+BUG 6 — Avatar URL hardcoded to localhost
+Files: Assignments.tsx, Staff.tsx, StaffProfile.tsx, AdminProfile.tsx
+All use: `http://localhost:5000${expert.avatarUrl}`
+Fix: read from import.meta.env.VITE_API_URL || '' and prepend that.
+Add VITE_API_URL= (empty string) to client/.env.example.
+
+BUG 7 — ImportPage upload button invisible
+File: client/src/components/dashboard/import/ImportPage.tsx
+The upload button has class bg-[#FFD600]/10 making it nearly invisible.
+Fix: change to bg-[#FFD600] text-[#0D0D0D] font-semibold (same as other primary buttons).
+
+BUG 8 — AuditLogs pagination unreachable beyond page 7
+File: client/src/components/dashboard/audit/AuditLogs.tsx
+Pagination renders: Array.from({ length: Math.min(pages, 7) }, (_, i) => i + 1)
+If there are 20 pages, pages 8-20 are never rendered or reachable.
+Fix: implement proper pagination with ellipsis: show first, last, current-1, current, current+1
+e.g. [1] ... [4] [5] [6] ... [20]
+
+BUG 9 — MonthPicker blocks future months for leave creation
+File: client/src/components/ui/MonthPicker.tsx
+Future months are globally disabled. But leave entries can legitimately be
+created for future months (planned leave).
+Fix: add a prop `allowFuture?: boolean` that when true, does not disable future months.
+Update the MonthPicker usage in Assignments.tsx (keep current behavior - no future)
+but pass allowFuture={true} in Leave creation contexts.
+
+BUG 10 — Burnout flagging never runs
+Files: server/src/utils/loadRecalculator.ts, server/src/models/Expert.ts
+Expert.burnoutFlags exists but nothing ever sets it.
+Fix: after recalcExpertLoads() completes, run burnout detection:
+- Flag expert if currentLoad > 160 hours in current month
+- Flag expert if they have been flagged for 2 or more consecutive months
+  (check updatedAt of burnoutFlags — if flaggedAt was last month and still over,
+  add reason "consecutive overload")
+- Unflag if currentLoad <= 160 (clear reasons, set flagged: false)
+Update Expert document in the same bulk operation.
+
+BUG 11 — Notification system uses hardcoded static data
+File: client/src/components/dashboard/layout/Header.tsx
+NOTIFICATIONS array is hardcoded and static.
+Fix: 
+- Add GET /api/dashboard/notifications endpoint returning:
+  { overBudget: Project[], pendingTimesheets: { count: number, experts: string[] }, burnoutStaff: Expert[] }
+- In Header.tsx, fetch this endpoint on mount (every 5 minutes with setInterval)
+- Map the response to the notification format
+- Show real counts and navigate to relevant page on click
+
+BUG 12 — refreshToken endpoint fingerprint breaks on mobile
+File: server/src/controllers/authController.ts
+buildFingerprint uses IP + user-agent. Mobile users on 4G/5G change IP frequently
+causing "Session invalid — please log in again" on every request.
+Fix: make fingerprint optional — only validate fp if it was present in the token.
+The current code already does this (if decoded.fp) but the issue is that
+signRefreshToken always embeds fp. Make fp embedding opt-in via an env flag:
+ENABLE_DEVICE_FINGERPRINT=true|false (default false for compatibility).
+
+═══════════════════════════════════════════════════════════════
+TASK 3 — MISSING FEATURES (implement fully, not as stubs)
+═══════════════════════════════════════════════════════════════
+
+FEATURE 1 — Affectation system (CRITICAL — referenced throughout specs)
+
+Backend:
+Create server/src/models/Affectation.ts:
+{
+  expertId: ObjectId (ref Expert, required)
+  expertName: String (required)
+  projectId: ObjectId (ref Project, required)
+  projectName: String (required)
+  clientName: String
+  externalId: String
+  type: String  // mission type
+  status: "active" | "inactive"
+  assignedAt: Date
+  createdAt/updatedAt: timestamps
+}
+Unique index: { expertId: 1, projectId: 1 }
+
+Create server/src/controllers/affectationController.ts:
+- getAll: GET /api/affectations?expertId=&projectId= with optional filters
+- getByExpert: GET /api/affectations/by-expert — grouped by expertId
+- getByProject: GET /api/affectations/by-project — grouped by projectId
+- rebuild: POST /api/affectations/rebuild — calls rebuildAllAffectations()
+
+Create server/src/utils/affectationSync.ts:
+rebuildAllAffectations():
+1. Delete all Affectation documents
+2. Aggregate unique (expertId, projectId) pairs from TimeEntry
+3. Lookup Project for each pair to get projectName, clientName, externalId, type
+4. Lookup Expert for expertName
+5. Create Affectation documents with status="active"
+6. Return { created: number }
+
+Create server/src/routes/affectationRoutes.ts and register in index.ts.
+
+Frontend Assignments.tsx update:
+- The current Assignments page fetches /projects and /staff directly
+- Add a data source toggle: "From Affectations" vs "From Projects.assignedStaff"
+- Fetch /api/affectations/by-expert for the staff view
+- This gives accurate real assignment data based on actual time entries
+
+FEATURE 2 — Team Builder page (CRITICAL — in specs, nav entry missing)
+
+Create client/src/components/dashboard/teambuilder/TeamBuilder.tsx
+
+The page must:
+1. Fetch GET /api/staff (all staff with coutHoraire)
+2. Fetch GET /api/estimations/collaborators-context?projectType={selectedType}
+   to get experienceCount per expert for the selected mission type
+3. Left panel — Collaborator browser:
+   - Search input (debounced 300ms)
+   - Level filter: All | Junior | Mid | Senior | Partner (button chips)
+   - Experience filter: All | Has experience | New to this type
+   - List of experts showing:
+     * Avatar circle (initials, colored by role like Staff.tsx)
+     * Name + level badge
+     * coutHoraire (e.g. "62.5 DT/h") in green badge
+     * Experience badge: "3× exp." in blue if has experience, "new" in gray if not
+     * Checkbox or click-to-toggle selection
+4. Right panel — Team composition:
+   - Selected count (e.g. "4 selected")
+   - Average hourly rate (sum of coutHoraire / count)
+   - Experience ratio: "3/4 with experience"
+   - Level breakdown: horizontal stacked bar + legend
+   - Cost preview table:
+     | Duration | Cost (avg rate) |
+     | 40h      | X,XXX TND      |
+     | 80h      | X,XXX TND      |
+     | 120h     | X,XXX TND      |
+     | 160h     | X,XXX TND      |
+     Cost = hours × avgRate (not total, per person average)
+   - Selected team list: avatar + name + rate + remove button
+   - "Clear all" button
+
+Backend — add to estimationController.ts:
+getCollaboratorsContext: GET /api/estimations/collaborators-context
+Query param: projectType (string)
+Returns: Expert[] with added field experienceCount:
+  experienceCount = count of distinct Affectation records for that expert
+  where Affectation.type === projectType
+If Affectation collection is empty, fall back to counting TimeEntry records
+for projects of that type.
+
+FEATURE 3 — EstimationProject + EstimationMeta models + auto-retrain
+
+Create server/src/models/EstimationProject.ts per spec section 5.
+Create server/src/models/EstimationMeta.ts per spec section 5.
+
+Add to estimationController.ts:
+- getHistorical: GET /api/estimations/historical
+  Returns all EstimationProject records sorted by createdAt desc
+  
+- importData: POST /api/estimations/import (admin only, multer memory)
+  Parse Excel with columns from spec section 11 (Historical Estimation Data)
+  Upsert into EstimationProject collection
+  Update EstimationMeta.lastRetrainedAt
+  
+- retrain: POST /api/estimations/retrain (admin only)
+  1. Sync completed projects from Project collection into EstimationProject
+     For each Project where status="completed":
+       Upsert EstimationProject with { hBudget, hReal, budgetHT, coutReel, marge, rentPct, overBudget, sector, type, segment }
+  2. Call Python /retrain endpoint with the raw.xlsx file
+  3. Reset EstimationMeta.completedSinceRetrain = 0
+  4. Update EstimationMeta.lastRetrainedAt = now
+
+Add incrementCompletedAndMaybeRetrain(projectId) utility:
+Called whenever a project status changes to "completed" (in projectController updateProject)
+1. Increment EstimationMeta.completedSinceRetrain
+2. If completedSinceRetrain >= 10, call retrain() automatically
+3. Log audit action
+
+FEATURE 4 — TimeEntry CRUD + validation workflow
+
+Backend:
+Add to server/src/routes/ a new timeEntryRoutes.ts:
+- GET    /api/time-entries?expertId=&projectId=&month=YYYY-MM — filtered list
+- POST   /api/time-entries — create entry (admin, manager)
+- PUT    /api/time-entries/:id — update entry
+- DELETE /api/time-entries/:id — delete entry (admin)
+- PATCH  /api/time-entries/:id/validate — { status: "validated"|"rejected", note?: string }
+  Only admin or manager can validate. Rejected entries store the note.
+
+Create timeEntryController.ts with all above handlers.
+Each mutation calls logAudit() and triggers recalcExpertLoads() on create/delete.
+
+Frontend:
+Add a TimeEntries tab to ProjectDetail.tsx:
+- Table showing all time entries for that project
+- Columns: expert, date, hours, status badge, actions
+- Inline validate/reject buttons for admin/manager
+- Add entry form (modal): expert dropdown, date picker, hours input
+
+FEATURE 5 — Project staff assignment endpoint
+
+Add to projectRoutes.ts:
+PUT /api/projects/:id/staff
+Body: { add: string[], remove: string[] }  // expert IDs
+- Add IDs to Project.assignedStaff (no duplicates)
+- Remove IDs from Project.assignedStaff
+- Create/deactivate corresponding Affectation records
+- Log audit
+
+In Assignments.tsx matrix view:
+- Each assignment cell should be clickable (not read-only)
+- Clicking an empty cell calls PUT /api/projects/:id/staff { add: [expertId] }
+- Clicking a filled cell calls PUT /api/projects/:id/staff { remove: [expertId] }
+- Optimistic UI update with error rollback
+
+FEATURE 6 — Export endpoints
+
+Add to each resource router:
+GET /api/projects/export   → Excel file with all projects data
+GET /api/staff/export      → Excel file with all staff (no passwords)
+GET /api/clients/export    → Excel file with all clients
+
+Each uses xlsx library (already installed) to build a workbook and send as:
+res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+res.setHeader('Content-Disposition', 'attachment; filename=projects-YYYY-MM-DD.xlsx')
+
+Add export buttons to ProjectsList.tsx, Staff.tsx, Clients.tsx.
+Use window.open or an anchor tag with the API URL + auth header (use blob download pattern).
+
+FEATURE 7 — Real-time notifications
+
+Backend:
+GET /api/dashboard/notifications
+Returns:
+{
+  overBudget: [{ _id, name, clientName, paceIndexHours }]  // top 5 burning projects
+  pendingTimesheets: { count: number, topExperts: [{ name, count }] }  // top 3
+  burnoutStaff: [{ _id, name, burnoutFlags }]  // all flagged
+  atRisk: [{ _id, name, clientName, paceIndexHours }]  // top 5 at-risk
+}
+
+Frontend Header.tsx:
+- Replace static NOTIFICATIONS with useEffect fetch of /api/dashboard/notifications
+- Refresh every 5 minutes (setInterval, clear on unmount)
+- Map response to notification items:
+  * Each overBudget project → warning notification linking to /dashboard/pace
+  * pendingTimesheets.count > 0 → info notification linking to /dashboard/overview
+  * Each burnoutStaff → error notification linking to /dashboard/staff/:id
+- Show total unread count badge
+
+FEATURE 8 — Overview charts (data already exists, UI is missing)
+
+The dashboard API already returns hoursPerMonth and projectsByStatus.
+Add visual charts to Overview.tsx using recharts (already installed):
+
+1. Hours per month — BarChart
+   Data: stats.hoursPerMonth (array of { _id: "YYYY-MM", totalHours })
+   X axis: month label, Y axis: hours
+   Color: #FFD600 bars
+   Place above the KPI cards
+
+2. Project status breakdown — PieChart or RadialBarChart
+   Data: stats.projectsByStatus (array of { status, count })
+   Colors: active=#FFD600, completed=#22c55e, on-hold=#f59e0b, cancelled=#ef4444
+   Place in a card alongside KPI cards
+
+3. Rentabilité par manager — BarChart (data: stats.rentByManager already returned)
+   Horizontal bar chart showing rentMoy % per manager
+   Replace the current card grid with this chart for better readability
+
+═══════════════════════════════════════════════════════════════
+TASK 4 — CODE QUALITY CLEANUP
+═══════════════════════════════════════════════════════════════
+
+1. EXTRACT ERROR MESSAGE HELPER
+Create client/src/utils/getErrorMessage.ts:
+export function getErrorMessage(err: unknown): string {
+  return (err as { response?: { data?: { message?: string } } })
+    ?.response?.data?.message ?? "An unexpected error occurred.";
+}
+Replace all inline usages of this pattern across every component.
+
+2. EXTRACT API BASE URL
+Create client/src/utils/getAvatarUrl.ts:
+const API_BASE = import.meta.env.VITE_API_URL ?? "";
+export const getAvatarUrl = (avatarUrl?: string) =>
+  avatarUrl ? `${API_BASE}${avatarUrl}` : null;
+Replace all `http://localhost:5000${avatarUrl}` usages.
+
+3. ADD API TIMEOUT
+In client/src/services/api.ts, add timeout to axios instance:
+const api = axios.create({ baseURL: "/api", timeout: 30000, ... })
+
+4. MEMOIZE DASHBOARD TITLE
+In DashboardLayout.tsx, wrap titleKey computation in useMemo.
+
+5. EXTRACT MAGIC NUMBERS INTO CONSTANTS
+Create server/src/config/constants.ts:
+export const MONTHLY_HOURS_CAPACITY = 160;
+export const PACE_AT_RISK_THRESHOLD = 1.0;
+export const PACE_BURNING_THRESHOLD = 1.2;
+export const MAX_LOGIN_ATTEMPTS = 5;
+export const LOCK_DURATION_MS = 15 * 60 * 1000;
+export const INACTIVITY_MS = 15 * 60 * 1000;
+export const BURNOUT_LOAD_THRESHOLD = 160;
+export const AUTO_RETRAIN_THRESHOLD = 10;
+Replace all usages in both client and server.
+
+6. REPLACE console.error WITH STRUCTURED LOGGING
+Add server/src/utils/logger.ts using console with timestamps:
+export const logger = {
+  info:  (msg: string, meta?: object) => console.log(JSON.stringify({ level: "info",  msg, ...meta, ts: new Date() })),
+  error: (msg: string, meta?: object) => console.error(JSON.stringify({ level: "error", msg, ...meta, ts: new Date() })),
+  warn:  (msg: string, meta?: object) => console.warn(JSON.stringify({ level: "warn",  msg, ...meta, ts: new Date() })),
+}
+Replace all console.log / console.error in server/src/.
+
+7. DEDUPLICATE STATUS NORMALIZATION
+In importController.ts and projectImportController.ts, the status normalization
+(Terminé / Terminate / Completed → canonical form) is duplicated.
+Extract to server/src/utils/normalizeStatus.ts.
+
+8. ADD DEBOUNCE TO CLIENTS SEARCH
+In Clients.tsx, the search input triggers fetchClients() on every keystroke
+via useEffect([search]). Add a 300ms debounce using a custom useDebounce hook:
+Create client/src/hooks/useDebounce.ts and apply it.
+
+9. TYPESCRIPT STRICTNESS
+Find all uses of `any` type in server/src/ and client/src/.
+Replace with proper types or unknown + type guards.
+Pay special attention to:
+- importController.ts: rows typed as Record<string, unknown>[] — acceptable, document it
+- dashboardController.ts: return type of getStats should be typed
+- All catch blocks: err should be unknown, not any
+
+10. MISSING TRANSLATION KEYS
+The spec mentions 559 translation keys. Audit LanguageContext.tsx and find any
+string rendered directly in components (not via t()) that should be translated.
+Add missing keys to both EN and FR translation objects.
+Specifically check: TeamBuilder.tsx (new), all new feature UIs.
+
+═══════════════════════════════════════════════════════════════
+TASK 5 — SECURITY HARDENING
+═══════════════════════════════════════════════════════════════
+
+1. RATE LIMIT FORGOT PASSWORD
+In authRoutes.ts, add rate limiting to POST /forgot-password:
+- Max 3 requests per 15 minutes per IP
+- Use a simple in-memory Map<string, { count, resetAt }> (no extra packages)
+- Return 429 with message "Too many reset requests, try again later"
+
+2. ML SERVICE SHARED SECRET
+In server/ml/main.py, add secret token validation on /retrain and /predict:
+- Read ML_SECRET from environment variable
+- Node.js passes X-ML-Secret header on every call to Python
+- Python rejects requests without the correct secret
+- Add ML_SECRET to server/.env and server/ml/.env
+
+3. VALIDATE AVATAR MIME TYPE SERVER-SIDE
+In staffRoutes.ts, the multer fileFilter currently only checks
+file.mimetype.startsWith("image/").
+Add explicit MIME type whitelist:
+const ALLOWED_MIMES = ["image/jpeg", "image/png", "image/webp"];
+Reject anything not in this list with a proper error message.
+
+4. SANITIZE MONGO QUERY INPUTS
+In auditLogController.ts and any controller that uses req.query values
+directly in MongoDB filters, add input sanitization:
+- Trim strings
+- Validate ObjectId format before using in queries
+- Reject values containing MongoDB operators ($, .)
+
+5. ADD MISSING INDEX FOR PERFORMANCE
+Review all models and add missing indexes per query patterns:
+- TimeEntry: add { validationStatus: 1 } (used in dashboard pending alerts query)
+- Expert: add { "burnoutFlags.flagged": 1 } (used in burnout queries)
+- Affectation: already has { expertId:1, projectId:1 } unique — verify it's set
+- AuditLog: add { userName: 1 } (used in search filter)
+
+═══════════════════════════════════════════════════════════════
+TASK 6 — ARCHITECTURE RECOMMENDATIONS
+═══════════════════════════════════════════════════════════════
+
+After completing all above tasks, provide specific recommendations for:
+
+1. SERVICE LAYER
+   Which business logic should move from controllers into service files?
+   Specifically: recalculation logic in importController is 200+ lines —
+   extract into importService.ts with testable pure functions.
+
+2. WEBSOCKET OPPORTUNITY
+   Which features would benefit from real-time WebSocket updates?
+   - Pace index updates (after import)
+   - Notification badge count
+   - Burnout flag changes
+   Recommend: use Socket.io alongside Express (already on same port).
+   Show the connection setup code and one example event.
+
+3. CACHING
+   Which endpoints are called frequently and return slowly?
+   - GET /api/dashboard/stats — runs 15 MongoDB aggregations per call
+   Recommend: cache with a 60-second TTL using a simple in-memory Map.
+   Show the cache wrapper pattern.
+
+4. COMPONENT SPLITTING
+   Which React components are too large?
+   - Overview.tsx (700+ lines) — split into: KpiRow, ChartsSection, TablesSection
+   - Staff.tsx (600+ lines) — split StaffForm into its own component
+   - Assignments.tsx (700+ lines) — split each view mode into separate components
+   Show the split structure with file names and responsibilities.
+
+5. MONGODB QUERY OPTIMIZATION
+   The dashboard getStats controller runs 15 parallel Promise.all queries.
+   Which of these can be combined into fewer aggregation pipelines?
+   Show the optimized version.
+
+═══════════════════════════════════════════════════════════════
+EXECUTION RULES
+═══════════════════════════════════════════════════════════════
+
+- Complete every task in order. Do not skip anything.
+- Show full file content for every new file created.
+- Show exact before/after diff for every bug fix.
+- Do not use placeholder comments like "// implement this later" — implement it now.
+- When creating a new page, it must be fully functional: real API calls, real state, real error handling, real loading states.
+- Every new backend endpoint must have: input validation, error handling, audit logging where appropriate, correct role authorization.
+- Every new frontend component must use: the existing design system (CSS variables, Tailwind classes matching the existing style), the existing Toast system for feedback, the existing Language context for all text.
+- Match the existing code style exactly: same import ordering, same component structure pattern, same TypeScript patterns.
+- When done with all 6 tasks, output a summary checklist of everything changed.

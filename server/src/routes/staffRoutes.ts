@@ -17,12 +17,14 @@ const avatarStorage = multer.diskStorage({
   },
 });
 
+const ALLOWED_MIMES = ["image/jpeg", "image/png", "image/webp"];
+
 const uploadMiddleware = multer({
   storage: avatarStorage,
   limits: { fileSize: 500 * 1024 }, // 500 KB
   fileFilter: (_req, file, cb) => {
-    if (file.mimetype.startsWith("image/")) cb(null, true);
-    else cb(new Error("Only image files are allowed"));
+    if (ALLOWED_MIMES.includes(file.mimetype)) cb(null, true);
+    else cb(new Error(`Invalid file type. Allowed types: ${ALLOWED_MIMES.join(", ")}`));
   },
 });
 

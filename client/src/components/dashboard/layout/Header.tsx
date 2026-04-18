@@ -1,8 +1,9 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Sun, Moon, Bell, ChevronRight, LayoutDashboard, FolderKanban, Users, Grid3X3, Upload, Brain, Building2, FileText, X, AlertTriangle, CheckCircle, Info } from "lucide-react";
 import { useTheme } from "../../../context/ThemeContext";
 import { useLanguage } from "../../../context/LanguageContext";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import api from "../../../services/api";
 
 interface HeaderProps {
   title: string;
@@ -19,32 +20,99 @@ const routeIcons: Record<string, React.ElementType> = {
   "/dashboard/clients":     Building2,
 };
 
-// Sample notifications — in a real app these come from API
-const NOTIFICATIONS = [
-  { id: 1, type: "warning" as const, title: "Budget dépassé",       body: "PRJ-0042 a dépassé son budget de 18%.", time: "Il y a 2h" },
-  { id: 2, type: "info"    as const, title: "Nouvelle affectation", body: "Nour Hamed affecté à PRJ-0075.",       time: "Il y a 4h" },
-  { id: 3, type: "success" as const, title: "Projet clôturé",       body: "PRJ-0031 marqué comme Terminé.",       time: "Hier"      },
-  { id: 4, type: "warning" as const, title: "Anomalie timesheet",   body: "12 timesheets non validés ce mois.",  time: "Hier"      },
-];
+interface NotifItem {
+  id: string;
+  type: "warning" | "info" | "success" | "error";
+  title: string;
+  body: string;
+  href?: string;
+}
 
 const notifIcons = {
   warning: <AlertTriangle className="w-4 h-4 text-amber-500" />,
   info:    <Info          className="w-4 h-4 text-blue-500"  />,
   success: <CheckCircle   className="w-4 h-4 text-green-500" />,
+  error:   <AlertTriangle className="w-4 h-4 text-red-500"   />,
 };
 
 const Header = ({ title, onToggleSidebar }: HeaderProps) => {
   const { theme, toggleTheme } = useTheme();
   const { lang, setLang }      = useLanguage();
   const { pathname }           = useLocation();
+  const navigate               = useNavigate();
 
-  const [notifOpen, setNotifOpen]       = useState(false);
-  const [dismissed, setDismissed]       = useState<number[]>([]);
-  const notifRef                        = useRef<HTMLDivElement>(null);
+  const [notifOpen, setNotifOpen]         = useState(false);
+  const [dismissed, setDismissed]         = useState<string[]>([]);
+  const [notifications, setNotifications] = useState<NotifItem[]>([]);
+  const notifRef                          = useRef<HTMLDivElement>(null);
 
   const baseRoute = "/" + pathname.split("/").slice(1, 3).join("/");
   const PageIcon  = routeIcons[baseRoute] ?? FileText;
-  const unread    = NOTIFICATIONS.filter(n => !dismissed.includes(n.id)).length;
+  const unread    = notifications.filter(n => !dismissed.includes(n.id)).length;
+
+  const fetchNotifications = useCallback(async () => {
+    try {
+      const { data } = await api.get<{
+        overBudget: { _id: string; name: string; clientName: string; paceIndexHours: number }[];
+        pendingTimesheets: { count: number; topExperts: { name: string; count: number }[] };
+        burnoutStaff: { _id: string; name: string }[];
+        atRisk: { _id: string; name: string; clientName: string; paceIndexHours: number }[];
+      }>("/dashboard/notifications");
+
+      const items: NotifItem[] = [];
+
+      for (const p of data.overBudget) {
+        items.push({
+          id: `overbudget-${p._id}`,
+          type: "warning",
+          title: "Budget dépassé",
+          body: `${p.name} (${p.clientName}) — pace ${p.paceIndexHours.toFixed(2)}`,
+          href: "/dashboard/pace",
+        });
+      }
+
+      if (data.pendingTimesheets.count > 0) {
+        items.push({
+          id: "pending-timesheets",
+          type: "info",
+          title: `${data.pendingTimesheets.count} timesheets en attente`,
+          body: data.pendingTimesheets.topExperts.map(e => `${e.name} (${e.count})`).join(", "),
+          href: "/dashboard/overview",
+        });
+      }
+
+      for (const e of data.burnoutStaff) {
+        items.push({
+          id: `burnout-${e._id}`,
+          type: "error",
+          title: "Risque burnout",
+          body: e.name,
+          href: `/dashboard/staff/${e._id}`,
+        });
+      }
+
+      for (const p of data.atRisk) {
+        items.push({
+          id: `atrisk-${p._id}`,
+          type: "info",
+          title: "Projet à risque",
+          body: `${p.name} — pace ${p.paceIndexHours.toFixed(2)}`,
+          href: "/dashboard/pace",
+        });
+      }
+
+      setNotifications(items);
+    } catch {
+      // Notifications are non-critical; silently ignore fetch errors
+    }
+  }, []);
+
+  // Fetch on mount and every 5 minutes
+  useEffect(() => {
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [fetchNotifications]);
 
   // Close panel on outside click
   useEffect(() => {
@@ -197,9 +265,9 @@ const Header = ({ title, onToggleSidebar }: HeaderProps) => {
                 <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--color-text-primary)" }}>
                   Notifications {unread > 0 && <span style={{ marginLeft: "6px", padding: "1px 7px", borderRadius: "9999px", backgroundColor: "var(--color-accent)", color: "var(--color-accent-text)", fontSize: "11px" }}>{unread}</span>}
                 </span>
-                {dismissed.length < NOTIFICATIONS.length && (
+                {unread > 0 && (
                   <button
-                    onClick={() => setDismissed(NOTIFICATIONS.map(n => n.id))}
+                    onClick={() => setDismissed(notifications.map(n => n.id))}
                     style={{ fontSize: "11px", color: "var(--color-text-tertiary)", background: "none", border: "none", cursor: "pointer" }}
                   >
                     Tout marquer lu
@@ -207,31 +275,32 @@ const Header = ({ title, onToggleSidebar }: HeaderProps) => {
                 )}
               </div>
               <div style={{ maxHeight: "320px", overflowY: "auto" }}>
-                {NOTIFICATIONS.filter(n => !dismissed.includes(n.id)).length === 0 ? (
+                {notifications.filter(n => !dismissed.includes(n.id)).length === 0 ? (
                   <p style={{ padding: "24px 16px", textAlign: "center", fontSize: "13px", color: "var(--color-text-tertiary)" }}>
                     Aucune notification
                   </p>
                 ) : (
-                  NOTIFICATIONS.map((n) => {
+                  notifications.map((n) => {
                     if (dismissed.includes(n.id)) return null;
                     return (
                       <div
                         key={n.id}
+                        onClick={() => { if (n.href) { navigate(n.href); setNotifOpen(false); } }}
                         style={{
                           padding: "12px 16px",
                           display: "flex", gap: "10px", alignItems: "flex-start",
                           borderBottom: "1px solid var(--color-border-default)",
                           backgroundColor: "var(--color-bg-card)",
+                          cursor: n.href ? "pointer" : "default",
                         }}
                       >
                         <div style={{ flexShrink: 0, marginTop: "1px" }}>{notifIcons[n.type]}</div>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <p style={{ fontSize: "13px", fontWeight: 600, color: "var(--color-text-primary)", margin: 0 }}>{n.title}</p>
                           <p style={{ fontSize: "12px", color: "var(--color-text-secondary)", margin: "2px 0 0", lineHeight: 1.4 }}>{n.body}</p>
-                          <p style={{ fontSize: "11px", color: "var(--color-text-tertiary)", margin: "4px 0 0" }}>{n.time}</p>
                         </div>
                         <button
-                          onClick={() => setDismissed(prev => [...prev, n.id])}
+                          onClick={(e) => { e.stopPropagation(); setDismissed(prev => [...prev, n.id]); }}
                           aria-label="Dismisser cette notification"
                           style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", color: "var(--color-text-tertiary)", padding: "2px" }}
                         >
