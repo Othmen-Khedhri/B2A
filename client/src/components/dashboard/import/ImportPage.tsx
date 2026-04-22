@@ -1,6 +1,6 @@
 import { useCallback, useState, useEffect } from "react";
 import { useDropzone } from "react-dropzone";
-import { Upload, CheckCircle, XCircle, FileSpreadsheet, Clock } from "lucide-react";
+import { Upload, CheckCircle, XCircle, AlertTriangle, FileSpreadsheet, Clock } from "lucide-react";
 import api from "../../../services/api";
 
 type FileType = "timesheets" | "billing" | "leave" | "projects";
@@ -176,11 +176,12 @@ const ImportPage = () => {
       {result && (() => {
         const isProjectsResult = result.created !== undefined || result.updated !== undefined;
         const hasErrors = result.errors.length > 0;
+        const anyImported = ((result.created ?? 0) + (result.updated ?? 0)) > 0;
         const isOk = isProjectsResult
-          ? !hasErrors
+          ? !hasErrors && anyImported
           : result.status === "success";
         const isPartial = isProjectsResult
-          ? hasErrors && ((result.created ?? 0) + (result.updated ?? 0)) > 0
+          ? hasErrors && anyImported
           : result.status === "partial";
 
         const summaryMessage = isProjectsResult
@@ -197,6 +198,8 @@ const ImportPage = () => {
           <div className={`rounded-lg p-4 flex items-start gap-3 ${colorCls}`}>
             {isOk ? (
               <CheckCircle className="w-5 h-5 text-green-500 shrink-0 mt-0.5" />
+            ) : isPartial ? (
+              <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
             ) : (
               <XCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
             )}
