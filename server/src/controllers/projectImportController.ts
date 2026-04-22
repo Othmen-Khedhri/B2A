@@ -124,16 +124,23 @@ function parseMonthDate(val: unknown, _endOfMonth = false): Date {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }
 
-/** Resolve a comma-separated list of names to Expert ObjectIds */
-async function resolveCollaborators(raw: string): Promise<{ ids: string[]; notFound: string[] }> {
+/** In-memory collaborator resolver — pass the pre-loaded expert map */
+function resolveCollaboratorsSync(
+  raw: string,
+  expertMap: Map<string, { id: string; role: string }>,
+): { ids: string[]; notFound: string[] } {
   if (!raw.trim()) return { ids: [], notFound: [] };
   const names = raw.split(/[,;|]+/).map((n) => n.trim()).filter(Boolean);
   const ids: string[] = [];
   const notFound: string[] = [];
 
   for (const name of names) {
-    const expert = await Expert.findOne({ name: { $regex: name, $options: "i" } }).select("_id");
-    if (expert) ids.push((expert._id as { toString(): string }).toString());
+    const key = name.toLowerCase();
+    // exact match first, then substring match
+    const entry =
+      expertMap.get(key) ??
+      [...expertMap.entries()].find(([k]) => k.includes(key) || key.includes(k))?.[1];
+    if (entry) ids.push(entry.id);
     else notFound.push(name);
   }
   return { ids, notFound };
@@ -179,11 +186,14 @@ export const importProjects = async (req: AuthRequest, res: Response): Promise<v
       return;
     }
 
-    // Build expert name → coutHoraire lookup for cost computation
-    const allExperts = await Expert.find().select("name coutHoraire").lean();
+    // Pre-load ALL experts once — used for rates, collaborator resolution, and manager lookup
+    const allExperts = await Expert.find().select("name coutHoraire role").lean();
     const rateByName = new Map<string, number>();
+    const expertMap  = new Map<string, { id: string; role: string }>();
     for (const e of allExperts) {
-      rateByName.set((e.name || "").trim().toLowerCase(), Number(e.coutHoraire) || 0);
+      const key = (e.name || "").trim().toLowerCase();
+      rateByName.set(key, Number(e.coutHoraire) || 0);
+      expertMap.set(key, { id: (e._id as { toString(): string }).toString(), role: e.role as string });
     }
 
     // costConsumed = hoursConsumed × avg(coutHoraire of collaborators)
@@ -298,20 +308,22 @@ export const importProjects = async (req: AuthRequest, res: Response): Promise<v
             ? validatedRaw
             : ["oui", "yes", "true", "1", "vrai"].includes(validatedRaw.toLowerCase());
 
-        // ── Resolve collaborators ──
-        const { ids: staffIds, notFound } = await resolveCollaborators(collabRaw);
+        // ── Resolve collaborators (in-memory) ──
+        const { ids: staffIds, notFound } = resolveCollaboratorsSync(collabRaw, expertMap);
         if (notFound.length > 0) {
           warnings.push(`Ligne ${rowNum} (${name}) : collaborateurs introuvables → ${notFound.join(", ")}`);
         }
 
-        // ── Resolve manager by name if possible ──
+        // ── Resolve manager by name (in-memory) ──
         let responsiblePartnerId: string | undefined;
         if (managerName) {
-          const mgr = await Expert.findOne({
-            name: { $regex: managerName, $options: "i" },
-            role: { $in: ["admin", "manager"] },
-          }).select("_id");
-          if (mgr) responsiblePartnerId = (mgr._id as { toString(): string }).toString();
+          const mgrKey = managerName.trim().toLowerCase();
+          const mgrEntry =
+            expertMap.get(mgrKey) ??
+            [...expertMap.entries()].find(([k]) => k.includes(mgrKey) || mgrKey.includes(k))?.[1];
+          if (mgrEntry && ["admin", "manager"].includes(mgrEntry.role)) {
+            responsiblePartnerId = mgrEntry.id;
+          }
         }
 
         // ── Base payload (no hours/cost — handled separately) ──
