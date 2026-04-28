@@ -6,7 +6,6 @@ import Project from "../models/Project";
 import Client from "../models/Client";
 import TimeEntry from "../models/TimeEntry";
 import Expert from "../models/Expert";
-import Affectation from "../models/Affectation";
 
 const ML_API_URL = process.env.ML_API_URL || "http://127.0.0.1:8000";
 
@@ -86,12 +85,35 @@ export const getCollaboratorsContext = async (req: Request, res: Response): Prom
       .sort({ name: 1 })
       .lean();
 
-    // Build a map of expertId -> count of projects of this type they worked on
+    // Build a map of expertId -> count of distinct projects of this type they worked on.
+    // Uses TimeEntry → Project so past completed projects are included (affectations are
+    // deleted when a project closes, which would otherwise erase all experience history).
     const experienceMap = new Map<string, number>();
     if (projectType) {
-      const aggs = await Affectation.aggregate([
-        { $match: { type: String(projectType) } },
-        { $group: { _id: "$expertId", count: { $sum: 1 } } },
+      const aggs = await TimeEntry.aggregate([
+        {
+          $lookup: {
+            from: "projects",
+            localField: "projectId",
+            foreignField: "_id",
+            as: "project",
+          },
+        },
+        { $unwind: "$project" },
+        {
+          $match: {
+            "project.type": { $regex: new RegExp(`^${String(projectType).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
+          },
+        },
+        {
+          $group: {
+            _id: "$expertId",
+            projectIds: { $addToSet: "$projectId" },
+          },
+        },
+        {
+          $project: { _id: 1, count: { $size: "$projectIds" } },
+        },
       ]);
       for (const a of aggs) {
         experienceMap.set(String(a._id), a.count as number);

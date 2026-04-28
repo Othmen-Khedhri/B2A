@@ -24,10 +24,11 @@ const ImportPage    = lazy(() => import('./components/dashboard/import/ImportPag
 const Estimation    = lazy(() => import('./components/dashboard/estimation/Estimation'));
 const Clients       = lazy(() => import('./components/dashboard/clients/Clients'));
 const ClientProfile = lazy(() => import('./components/dashboard/clients/ClientProfile'));
-const ProjectPace   = lazy(() => import('./components/dashboard/projects/ProjectPace'));
 const AuditLogs     = lazy(() => import('./components/dashboard/audit/AuditLogs'));
 const AdminProfile  = lazy(() => import('./components/dashboard/profile/AdminProfile'));
 const TeamBuilder   = lazy(() => import('./components/dashboard/teambuilder/TeamBuilder'));
+const Timesheets    = lazy(() => import('./components/dashboard/timesheets/Timesheets'));
+const ParsePage     = lazy(() => import('./components/dashboard/parse/ParsePage'));
 
 function PageLoader() {
   return (
@@ -73,10 +74,11 @@ function App() {
                   <Route path="estimation" element={<Suspense fallback={<PageLoader />}><Estimation /></Suspense>} />
                   <Route path="clients" element={<Suspense fallback={<PageLoader />}><Clients /></Suspense>} />
                   <Route path="clients/:id" element={<Suspense fallback={<PageLoader />}><ClientProfile /></Suspense>} />
-                  <Route path="pace" element={<Suspense fallback={<PageLoader />}><ProjectPace /></Suspense>} />
                   <Route path="audit-logs"    element={<Suspense fallback={<PageLoader />}><AuditLogs /></Suspense>} />
                   <Route path="profile"      element={<Suspense fallback={<PageLoader />}><AdminProfile /></Suspense>} />
                   <Route path="team-builder" element={<Suspense fallback={<PageLoader />}><TeamBuilder /></Suspense>} />
+                  <Route path="timesheets"  element={<Suspense fallback={<PageLoader />}><Timesheets /></Suspense>} />
+                  <Route path="parse"      element={<Suspense fallback={<PageLoader />}><ParsePage /></Suspense>} />
                 </Route>
 
                 {/* Catch-all */}

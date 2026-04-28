@@ -1,7 +1,7 @@
 import { NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, FolderKanban, Users, Grid3X3,
-  Upload, Brain, Building2, LogOut, Gauge, ShieldCheck, UserPlus,
+  Upload, Brain, Building2, LogOut, ShieldCheck, UserPlus, FileSpreadsheet, Scissors,
 } from "lucide-react";
 import { useAuth } from "../../../context/AuthContext";
 import { useLanguage } from "../../../context/LanguageContext";
@@ -13,10 +13,11 @@ interface SidebarProps {
 const navItems = [
   { to: "/dashboard",             icon: LayoutDashboard, key: "nav.overview",    end: true,  roles: null },
   { to: "/dashboard/projects",    icon: FolderKanban,    key: "nav.projects",                roles: null },
-  { to: "/dashboard/pace",        icon: Gauge,           key: "nav.pace",                    roles: null },
   { to: "/dashboard/staff",       icon: Users,           key: "nav.staff",                   roles: null },
-  { to: "/dashboard/assignments", icon: Grid3X3,         key: "nav.assignments",             roles: null },
+  { to: "/dashboard/assignments", icon: Grid3X3,          key: "nav.assignments",             roles: null },
+  { to: "/dashboard/timesheets",  icon: FileSpreadsheet, key: "nav.timesheets",              roles: null },
   { to: "/dashboard/import",      icon: Upload,          key: "nav.import",                  roles: null },
+  { to: "/dashboard/parse",       icon: Scissors,        key: "nav.parse",                   roles: ["admin", "manager"] },
   { to: "/dashboard/estimation",   icon: Brain,           key: "nav.estimation",              roles: null },
   { to: "/dashboard/team-builder", icon: UserPlus,        key: "nav.teambuilder",             roles: null },
   { to: "/dashboard/clients",     icon: Building2,       key: "nav.clients",                 roles: null },
@@ -169,8 +170,7 @@ const Sidebar = ({ collapsed }: SidebarProps) => {
                 textAlign: "left",
                 transition: "background-color 0.15s",
               }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--color-nav-hover-bg)"; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--color-label-bg)"; }}
+              className="sidebar-profile-btn"
             >
               <div
                 aria-hidden="true"
@@ -223,14 +223,7 @@ const Sidebar = ({ collapsed }: SidebarProps) => {
               textAlign: "left",
               justifyContent: collapsed ? "center" : "flex-start",
             }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--color-danger-bg)";
-              (e.currentTarget as HTMLButtonElement).style.color = "var(--color-danger)";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.backgroundColor = "transparent";
-              (e.currentTarget as HTMLButtonElement).style.color = "var(--color-text-secondary)";
-            }}
+            className="sidebar-logout-btn"
           >
             <div
               style={{
@@ -247,11 +240,17 @@ const Sidebar = ({ collapsed }: SidebarProps) => {
         </div>
       </aside>
 
-      {/* Hover styles injected via style tag — avoids JS-based hover on nav links */}
       <style>{`
         .sidebar-nav-link:hover:not(.sidebar-nav-link--active) {
           background-color: var(--color-nav-hover-bg) !important;
           color: var(--color-text-primary) !important;
+        }
+        .sidebar-profile-btn:hover {
+          background-color: var(--color-nav-hover-bg) !important;
+        }
+        .sidebar-logout-btn:hover {
+          background-color: var(--color-danger-bg) !important;
+          color: var(--color-danger) !important;
         }
       `}</style>
     </>

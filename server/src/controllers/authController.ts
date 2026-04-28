@@ -121,6 +121,18 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    // ── Role check — only admins may log in ──────────────────────────────────
+    if (expert.role !== "admin") {
+      logAudit(req, {
+        action: "LOGIN_FAILED", resource: "auth",
+        resourceId: expert._id.toString(), resourceName: expert.name,
+        description: `Non-admin login attempt blocked for ${normalizedEmail} (role: ${expert.role})`,
+        metadata: { email: normalizedEmail, role: expert.role },
+      });
+      res.status(403).json({ message: "Access restricted to administrators only" });
+      return;
+    }
+
     // ── Success — clear attempt record ────────────────────────────────────────
     await LoginAttempt.deleteOne({ email: normalizedEmail });
 

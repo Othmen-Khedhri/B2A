@@ -1,75 +1,70 @@
 import Expert from "../models/Expert";
-import TimeEntry from "../models/TimeEntry";
-import Project from "../models/Project";
+import Timesheet from "../models/Timesheet";
 
 const BURNOUT_LOAD_THRESHOLD = 160;
 
 export const recalcExpertLoads = async (): Promise<void> => {
-  const projectCount = await Project.countDocuments();
-  if (projectCount === 0) {
-    await Expert.updateMany({}, { $set: { currentLoad: 0 } });
-    return;
-  }
+  const now          = new Date();
+  const currentMonth = now.getMonth() + 1;
+  const currentYear  = now.getFullYear();
 
-  // Only count hours for the current calendar month
-  const now = new Date();
-  const startOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const startOfLastMonth    = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  // Sum hours per collab from this month's timesheets
+  const sheets = await Timesheet.find({ year: currentYear, month: currentMonth })
+    .select("collabId entries")
+    .lean();
 
-  const totals = await TimeEntry.aggregate([
-    { $match: { date: { $gte: startOfCurrentMonth } } },
-    { $lookup: { from: "projects", localField: "projectId", foreignField: "_id", as: "project" } },
-    { $match: { project: { $ne: [] } } },
-    { $group: { _id: "$expertId", totalHours: { $sum: "$hours" } } },
-  ]);
-
-  // Build a map for quick lookup: expertId → currentMonthHours
   const hoursMap = new Map<string, number>();
-  for (const t of totals) {
-    hoursMap.set(String(t._id), Number(t.totalHours) || 0);
+  for (const sheet of sheets) {
+    const total = sheet.entries.reduce((s, e) => s + e.hours, 0);
+    hoursMap.set(String(sheet.collabId), total);
   }
 
-  // Fetch all experts to apply burnout logic
-  const experts = await Expert.find({}).select("_id currentLoad burnoutFlags updatedAt");
+  // Sum all-time hours per collab across all timesheets
+  const allSheets = await Timesheet.find().select("collabId entries").lean();
+  const totalMap  = new Map<string, number>();
+  for (const sheet of allSheets) {
+    const id    = String(sheet.collabId);
+    const total = sheet.entries.reduce((s, e) => s + e.hours, 0);
+    totalMap.set(id, (totalMap.get(id) || 0) + total);
+  }
 
-  const bulk = [] as Parameters<typeof Expert.bulkWrite>[0];
+  const experts = await Expert.find({}).select("_id burnoutFlags").lean();
 
-  // Reset all loads first
-  bulk.push({
-    updateMany: {
-      filter: {},
-      update: { $set: { currentLoad: 0 } },
-    },
-  });
+  const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const bulk: Parameters<typeof Expert.bulkWrite>[0] = [];
 
   for (const expert of experts) {
-    const id    = expert._id.toString();
-    const hours = hoursMap.get(id) ?? 0;
+    const id          = expert._id.toString();
+    const hours       = hoursMap.get(id) ?? 0;
+    const total       = totalMap.get(id) ?? 0;
     const overThreshold = hours > BURNOUT_LOAD_THRESHOLD;
 
-    // Determine if the expert was already flagged last month
-    const alreadyFlagged = expert.burnoutFlags?.flagged === true;
-    const flaggedAt      = expert.burnoutFlags?.flaggedAt;
+    const alreadyFlagged  = expert.burnoutFlags?.flagged === true;
+    const flaggedAt       = expert.burnoutFlags?.flaggedAt;
     const flaggedLastMonth =
       alreadyFlagged &&
       flaggedAt != null &&
-      flaggedAt >= startOfLastMonth &&
-      flaggedAt < startOfCurrentMonth;
+      new Date(flaggedAt) >= startOfLastMonth &&
+      new Date(flaggedAt) < startOfThisMonth;
 
     let burnoutUpdate: Record<string, unknown>;
 
     if (overThreshold) {
-      const reasons: string[] = ["overload"];
+      const reasons = ["overload"];
       if (flaggedLastMonth) reasons.push("consecutive overload");
       burnoutUpdate = {
-        currentLoad: hours,
+        currentLoad:              hours,
+        totalHours:               total,
         "burnoutFlags.flagged":   true,
         "burnoutFlags.reasons":   reasons,
-        "burnoutFlags.flaggedAt": flaggedLastMonth ? expert.burnoutFlags.flaggedAt : now,
+        "burnoutFlags.flaggedAt": flaggedLastMonth ? flaggedAt : now,
       };
     } else {
       burnoutUpdate = {
-        currentLoad: hours,
+        currentLoad:             hours,
+        totalHours:              total,
         "burnoutFlags.flagged":  false,
         "burnoutFlags.reasons":  [],
       };
@@ -83,7 +78,5 @@ export const recalcExpertLoads = async (): Promise<void> => {
     });
   }
 
-  if (bulk.length > 0) {
-    await Expert.bulkWrite(bulk);
-  }
+  if (bulk.length > 0) await Expert.bulkWrite(bulk);
 };

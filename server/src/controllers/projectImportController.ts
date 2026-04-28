@@ -250,7 +250,16 @@ export const importProjects = async (req: AuthRequest, res: Response): Promise<v
         const clientName   = toStr(col(row, "Nom du Client", "Client", "Nom Client", "client", "Client Name"));
         const segment      = toStr(col(row, "Segment", "segment"));
         const sector       = toStr(col(row, "Secteur d'Activité", "Secteur", "Secteur d Activite", "sector"));
-        const type         = toStr(col(row, "Type de Mission", "Type Mission", "Type", "type")) || "Général";
+        const typeRaw      = toStr(col(row, "Type de Mission", "Type Mission", "Type", "type"));
+        const PROJECT_TYPES = [
+          "Audit légal", "Audit interne", "Conseil en organisation", "Conseil fiscal",
+          "Assistance juridique", "Révision comptable", "Comptabilité générale",
+          "Commissariat aux apports", "Consolidation", "Due diligence", "Formation", "Paie & RH",
+        ];
+        const type = PROJECT_TYPES.find(
+          (t) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase() ===
+                 typeRaw.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
+        ) ?? typeRaw || "Général";
         const managerName  = toStr(col(row, "Manager Proposé", "Responsable", "Manager", "Collab Principal", "manager"));
         const budgetCost   = toNum(
           col(row, "Budget Estimé (TND)", "Budget Estimé", "Budget HT", "Budget", "budget")

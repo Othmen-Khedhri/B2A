@@ -4,6 +4,76 @@ import { AuthRequest } from "../middleware/authMiddleware";
 import Project from "../models/Project";
 import Expert from "../models/Expert";
 import TimeEntry from "../models/TimeEntry";
+import AnnualBudget from "../models/AnnualBudget";
+import Timesheet from "../models/Timesheet";
+
+const INTERNAL_CLIENT = "__internal__";
+
+interface ClientSummary {
+  clientName: string;
+  primaryCollab: string;
+  secondaryCollab: string;
+  internalHours: number;
+  clientHours: number;
+  financialBudget: number;
+  totalConsumed: number;
+  ytdClientGain: number;
+  avgPace: number;
+  health: "green" | "yellow" | "red";
+}
+
+async function computeClientSummaries(year: number): Promise<ClientSummary[]> {
+  const [budgets, sheets] = await Promise.all([
+    AnnualBudget.find({ year }).lean(),
+    Timesheet.find({ year }).lean(),
+  ]);
+
+  const consumedMap: Record<string, Record<number, number>> = {};
+  for (const sheet of sheets) {
+    for (const entry of sheet.entries) {
+      if (entry.clientName === INTERNAL_CLIENT) continue;
+      const cn = entry.clientName.toLowerCase();
+      const m  = new Date(entry.date).getMonth() + 1;
+      if (!consumedMap[cn]) consumedMap[cn] = {};
+      consumedMap[cn][m] = (consumedMap[cn][m] || 0) + entry.hours;
+    }
+  }
+
+  const now          = new Date();
+  const currentMonth = now.getMonth() + 1;
+  const currentYear  = now.getFullYear();
+
+  return budgets.map((b) => {
+    const cn = b.clientName.toLowerCase();
+    const consumed = consumedMap[cn] || {};
+    let totalConsumed = 0, elapsedMonths = 0, paceSum = 0;
+
+    for (let m = 1; m <= 12; m++) {
+      const isElapsed = year < currentYear || (year === currentYear && m <= currentMonth);
+      if (!isElapsed) break;
+      totalConsumed += consumed[m] || 0;
+      elapsedMonths++;
+      if (b.internalHours > 0) paceSum += (consumed[m] || 0) / b.internalHours;
+    }
+
+    const avgPace       = elapsedMonths > 0 ? paceSum / elapsedMonths : 0;
+    const ytdClientGain = elapsedMonths * b.clientHours - totalConsumed;
+    const health: "green" | "yellow" | "red" = avgPace > 1 ? "red" : avgPace > 0.85 ? "yellow" : "green";
+
+    return {
+      clientName:      b.clientName,
+      primaryCollab:   b.primaryCollab  || "",
+      secondaryCollab: b.secondaryCollab || "",
+      internalHours:   b.internalHours,
+      clientHours:     b.clientHours,
+      financialBudget: b.financialBudget || 0,
+      totalConsumed:   Math.round(totalConsumed * 10) / 10,
+      ytdClientGain:   Math.round(ytdClientGain * 10) / 10,
+      avgPace:         Math.round(avgPace * 100) / 100,
+      health,
+    };
+  });
+}
 
 // Build name → coutHoraire map from all experts.
 // Split collaboratorsRaw ("Name1 | Name2 | ...") and average the rates.
@@ -91,8 +161,8 @@ export const getStats = async (req: AuthRequest, res: Response): Promise<void> =
       projectsByStatus,
       topByPaceIndex,
       recentTimeEntries,
-      top10Rentable,
-      top10Depassement,
+      ,  // top10Rentable — computed below
+      ,  // top10Depassement — computed below
       rentByManager,
       heuresCollab,
       pendingAlerts,
@@ -122,19 +192,9 @@ export const getStats = async (req: AuthRequest, res: Response): Promise<void> =
         { $limit: 6 },
       ]),
 
-      // Top 10 projects by profitability (show even when margin <= 0 to avoid empty blocks)
-      Project.find({})
-        .sort({ marginPercent: -1 })
-        .limit(10)
-        .select("name clientName type responsiblePartnerName budgetCost costConsumed grossMargin marginPercent")
-        .lean(),
-
-      // Top 10 projects actually over budget (paceIndexHours > 1.0).
-      Project.find({ paceIndexHours: { $gt: 1.0 } })
-        .sort({ paceIndexHours: -1 })
-        .limit(10)
-        .select("name clientName type responsiblePartnerName budgetCost costConsumed budgetHours hoursConsumed paceIndexHours")
-        .lean(),
+      // Placeholder — replaced below after single computeClientSummaries call
+      Promise.resolve([]),
+      Promise.resolve([]),
 
       // Profitability grouped by responsible partner
       Project.aggregate([
@@ -257,6 +317,52 @@ export const getStats = async (req: AuthRequest, res: Response): Promise<void> =
         .lean(),
     ]);
 
+    // Compute client pace summaries once — derive top-10 lists and supervisor stats
+    const clientSummaries = await computeClientSummaries(new Date().getFullYear());
+
+    const top10RentableFinal = [...clientSummaries]
+      .sort((a, b) => b.ytdClientGain - a.ytdClientGain)
+      .slice(0, 10);
+
+    const top10DepassementFinal = [...clientSummaries]
+      .filter((c) => c.health === "red" || c.ytdClientGain < 0)
+      .sort((a, b) => a.ytdClientGain - b.ytdClientGain)
+      .slice(0, 10);
+
+    // Group by primaryCollab to build supervisor portfolio stats
+    const supervisorMap = new Map<string, {
+      nbClients: number; totalClientHours: number;
+      totalConsumed: number; totalYtdGain: number;
+      clientsDepassement: number; paceSum: number;
+    }>();
+
+    for (const c of clientSummaries) {
+      const key = c.primaryCollab || "Non assigné";
+      if (!supervisorMap.has(key)) {
+        supervisorMap.set(key, { nbClients: 0, totalClientHours: 0, totalConsumed: 0, totalYtdGain: 0, clientsDepassement: 0, paceSum: 0 });
+      }
+      const s = supervisorMap.get(key)!;
+      s.nbClients++;
+      s.totalClientHours += c.clientHours;
+      s.totalConsumed    += c.totalConsumed;
+      s.totalYtdGain     += c.ytdClientGain;
+      s.paceSum          += c.avgPace;
+      if (c.health === "red") s.clientsDepassement++;
+    }
+
+    const supervisorStats = Array.from(supervisorMap.entries())
+      .map(([supervisor, s]) => ({
+        supervisor,
+        nbClients:          s.nbClients,
+        totalClientHours:   Math.round(s.totalClientHours * 10) / 10,
+        totalConsumed:      Math.round(s.totalConsumed    * 10) / 10,
+        totalYtdGain:       Math.round(s.totalYtdGain     * 10) / 10,
+        clientsDepassement: s.clientsDepassement,
+        avgPace:            Math.round((s.paceSum / s.nbClients) * 100) / 100,
+        tauxDep:            Math.round((s.clientsDepassement / s.nbClients) * 100),
+      }))
+      .sort((a, b) => b.totalYtdGain - a.totalYtdGain);
+
     res.json({
       totalProjects,
       activeProjects,
@@ -267,9 +373,9 @@ export const getStats = async (req: AuthRequest, res: Response): Promise<void> =
       projectsByStatus,
       topByPaceIndex,
       hoursPerMonth: recentTimeEntries.reverse(),
-      top10Rentable,
-      top10Depassement,
-      rentByManager,
+      top10Rentable:    top10RentableFinal,
+      top10Depassement: top10DepassementFinal,
+      rentByManager:    supervisorStats,
       heuresCollab,
       pendingAlerts,
       anomalies,

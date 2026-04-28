@@ -2,6 +2,9 @@ import path from "path";
 import fs from "fs";
 import { Request, Response } from "express";
 import Expert from "../models/Expert";
+import Timesheet from "../models/Timesheet";
+import TimeEntry from "../models/TimeEntry";
+import Affectation from "../models/Affectation";
 import { recalcExpertLoads } from "../utils/loadRecalculator";
 import { logAudit, diffChanges } from "../utils/auditLogger";
 
@@ -69,11 +72,18 @@ export const deleteStaff = async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
+    // Cascade delete all data associated with this collab
+    await Promise.all([
+      Timesheet.deleteMany({ collabId: expert._id }),
+      TimeEntry.deleteMany({ expertId: expert._id }),
+      Affectation.deleteMany({ expertId: expert._id }),
+    ]);
+
     await expert.deleteOne();
     logAudit(req, {
       action: "DELETE", resource: "expert",
       resourceId: expert._id.toString(), resourceName: expert.name,
-      description: `Deleted staff member "${expert.name}"`,
+      description: `Deleted staff member "${expert.name}" and all associated data`,
     });
     res.json({ message: "Staff member deleted" });
   } catch (err) {
@@ -181,6 +191,43 @@ export const recalculateStaffLoads = async (req: Request, res: Response): Promis
     res.json({ message: "Staff loads recalculated" });
   } catch (err) {
     console.error("recalculateStaffLoads error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// ─── POST /api/staff/cleanup-orphans ─────────────────────────────────────────
+// Removes Timesheets, TimeEntries, and Affectations that reference non-existent experts
+export const cleanupOrphanedData = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const allExperts = await Expert.find().select("_id").lean();
+    const validIds   = new Set(allExperts.map((e) => e._id.toString()));
+
+    // Get all collabIds from timesheets that no longer exist
+    const allTimesheets  = await Timesheet.find().select("collabId").lean();
+    const orphanTsIds    = allTimesheets.filter((t) => !validIds.has(t.collabId.toString())).map((t) => t._id);
+
+    // Get all expertIds from time entries that no longer exist
+    const allTimeEntries = await TimeEntry.find().select("expertId").lean();
+    const orphanTeIds    = allTimeEntries.filter((t) => !validIds.has(t.expertId.toString())).map((t) => t._id);
+
+    // Get all expertIds from affectations that no longer exist
+    const allAffectations = await Affectation.find().select("expertId").lean();
+    const orphanAffIds    = allAffectations.filter((a) => !validIds.has(a.expertId.toString())).map((a) => a._id);
+
+    const [ts, te, af] = await Promise.all([
+      orphanTsIds.length  ? Timesheet.deleteMany({ _id: { $in: orphanTsIds } })   : Promise.resolve({ deletedCount: 0 }),
+      orphanTeIds.length  ? TimeEntry.deleteMany({ _id: { $in: orphanTeIds } })   : Promise.resolve({ deletedCount: 0 }),
+      orphanAffIds.length ? Affectation.deleteMany({ _id: { $in: orphanAffIds } }) : Promise.resolve({ deletedCount: 0 }),
+    ]);
+
+    res.json({
+      message:           "Orphaned data cleaned up",
+      timesheetsDeleted: ts.deletedCount,
+      timeEntriesDeleted: te.deletedCount,
+      affectationsDeleted: af.deletedCount,
+    });
+  } catch (err) {
+    console.error("cleanupOrphanedData error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };

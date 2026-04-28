@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import mongoose from "mongoose";
 import Project from "../models/Project";
 import TimeEntry from "../models/TimeEntry";
+import BillingEntry from "../models/BillingEntry";
 import { logAudit, diffChanges } from "../utils/auditLogger";
 import { recalcExpertLoads } from "../utils/loadRecalculator";
 import { removeProjectFromEstimation } from "./estimationController";
@@ -140,8 +141,9 @@ export const deleteProject = async (req: Request, res: Response): Promise<void> 
     await removeProjectFromEstimation(project._id.toString());
     await removeProjectAffectations(project._id.toString());
 
-    // Remove related time entries to keep staff load in sync.
+    // Remove all related data to keep collections consistent.
     await TimeEntry.deleteMany({ projectId: project._id });
+    await BillingEntry.deleteMany({ projectId: project._id });
     await recalcExpertLoads();
 
     logAudit(req, {

@@ -1,6 +1,6 @@
 import mongoose, { Schema } from "mongoose";
 
-export type FileType = "timesheets" | "billing" | "leave";
+export type FileType = "timesheets" | "billing" | "leave" | "timesheet" | "budget";
 export type ImportStatus = "success" | "partial" | "failed";
 
 export interface IImportHistory {
@@ -22,7 +22,7 @@ const ImportHistorySchema = new Schema<IImportHistory>(
     fileName: { type: String, required: true },
     fileType: {
       type: String,
-      enum: ["timesheets", "billing", "leave"],
+      enum: ["timesheets", "billing", "leave", "timesheet", "budget"],
       required: true,
     },
     recordCount: { type: Number, default: 0 },

@@ -2,7 +2,7 @@ import path from "path";
 import fs from "fs";
 import { Router } from "express";
 import multer from "multer";
-import { getStaff, getStaffById, createStaff, updateStaff, deleteStaff, uploadAvatar, recalculateStaffLoads } from "../controllers/staffController";
+import { getStaff, getStaffById, createStaff, updateStaff, deleteStaff, uploadAvatar, recalculateStaffLoads, cleanupOrphanedData } from "../controllers/staffController";
 import { protect, authorize } from "../middleware/authMiddleware";
 
 // ─── Avatar upload setup ──────────────────────────────────────────────────────
@@ -30,7 +30,8 @@ const uploadMiddleware = multer({
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 const router = Router();
-router.post("/recalculate-loads", protect, authorize("admin"), recalculateStaffLoads);
+router.post("/recalculate-loads",  protect, authorize("admin"), recalculateStaffLoads);
+router.post("/cleanup-orphans",    protect, authorize("admin"), cleanupOrphanedData);
 router.get("/",    protect, getStaff);
 router.get("/:id", protect, getStaffById);
 router.post("/",   protect, authorize("admin"), createStaff);

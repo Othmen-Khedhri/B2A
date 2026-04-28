@@ -327,7 +327,7 @@ export const importFile = async (req: AuthRequest, res: Response): Promise<void>
 
 export const getImportHistory = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const history = await ImportHistory.find().sort({ date: -1 }).limit(50);
+    const history = await ImportHistory.find().sort({ date: -1 }).limit(200);
     res.json(history);
   } catch (err) {
     console.error("getImportHistory error:", err);

@@ -37,7 +37,7 @@ const notifIcons = {
 
 const Header = ({ title, onToggleSidebar }: HeaderProps) => {
   const { theme, toggleTheme } = useTheme();
-  const { lang, setLang }      = useLanguage();
+  const { lang, setLang, t }   = useLanguage();
   const { pathname }           = useLocation();
   const navigate               = useNavigate();
 
@@ -65,9 +65,9 @@ const Header = ({ title, onToggleSidebar }: HeaderProps) => {
         items.push({
           id: `overbudget-${p._id}`,
           type: "warning",
-          title: "Budget dépassé",
+          title: t("notif.over_budget"),
           body: `${p.name} (${p.clientName}) — pace ${p.paceIndexHours.toFixed(2)}`,
-          href: "/dashboard/pace",
+          href: "/dashboard/projects",
         });
       }
 
@@ -75,7 +75,7 @@ const Header = ({ title, onToggleSidebar }: HeaderProps) => {
         items.push({
           id: "pending-timesheets",
           type: "info",
-          title: `${data.pendingTimesheets.count} timesheets en attente`,
+          title: `${data.pendingTimesheets.count} ${t("notif.timesheets_pending")}`,
           body: data.pendingTimesheets.topExperts.map(e => `${e.name} (${e.count})`).join(", "),
           href: "/dashboard/overview",
         });
@@ -85,7 +85,7 @@ const Header = ({ title, onToggleSidebar }: HeaderProps) => {
         items.push({
           id: `burnout-${e._id}`,
           type: "error",
-          title: "Risque burnout",
+          title: t("notif.burnout_risk"),
           body: e.name,
           href: `/dashboard/staff/${e._id}`,
         });
@@ -95,9 +95,9 @@ const Header = ({ title, onToggleSidebar }: HeaderProps) => {
         items.push({
           id: `atrisk-${p._id}`,
           type: "info",
-          title: "Projet à risque",
+          title: t("notif.at_risk"),
           body: `${p.name} — pace ${p.paceIndexHours.toFixed(2)}`,
-          href: "/dashboard/pace",
+          href: "/dashboard/projects",
         });
       }
 
@@ -105,7 +105,7 @@ const Header = ({ title, onToggleSidebar }: HeaderProps) => {
     } catch {
       // Notifications are non-critical; silently ignore fetch errors
     }
-  }, []);
+  }, [lang]); // recreate when language changes so notification titles are re-translated
 
   // Fetch on mount and every 5 minutes
   useEffect(() => {
@@ -179,7 +179,7 @@ const Header = ({ title, onToggleSidebar }: HeaderProps) => {
         <div
           style={{
             display: "flex",
-            backgroundColor: theme === "dark" ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)",
+            backgroundColor: "var(--color-label-bg)",
             borderRadius: "10px",
             padding: "3px",
             gap: "2px",
@@ -270,14 +270,14 @@ const Header = ({ title, onToggleSidebar }: HeaderProps) => {
                     onClick={() => setDismissed(notifications.map(n => n.id))}
                     style={{ fontSize: "11px", color: "var(--color-text-tertiary)", background: "none", border: "none", cursor: "pointer" }}
                   >
-                    Tout marquer lu
+                    {t("notif.mark_all_read")}
                   </button>
                 )}
               </div>
               <div style={{ maxHeight: "320px", overflowY: "auto" }}>
                 {notifications.filter(n => !dismissed.includes(n.id)).length === 0 ? (
                   <p style={{ padding: "24px 16px", textAlign: "center", fontSize: "13px", color: "var(--color-text-tertiary)" }}>
-                    Aucune notification
+                    {t("notif.none")}
                   </p>
                 ) : (
                   notifications.map((n) => {
@@ -301,7 +301,7 @@ const Header = ({ title, onToggleSidebar }: HeaderProps) => {
                         </div>
                         <button
                           onClick={(e) => { e.stopPropagation(); setDismissed(prev => [...prev, n.id]); }}
-                          aria-label="Dismisser cette notification"
+                          aria-label={t("notif.dismiss")}
                           style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", color: "var(--color-text-tertiary)", padding: "2px" }}
                         >
                           <X style={{ width: "13px", height: "13px" }} />
@@ -326,7 +326,7 @@ const Header = ({ title, onToggleSidebar }: HeaderProps) => {
           }}
         >
           {theme === "dark"
-            ? <Sun  style={{ width: "18px", height: "18px", color: "#F59E0B" }} />
+            ? <Sun  style={{ width: "18px", height: "18px", color: "var(--color-text-secondary)" }} />
             : <Moon style={{ width: "18px", height: "18px" }} />}
         </button>
       </div>

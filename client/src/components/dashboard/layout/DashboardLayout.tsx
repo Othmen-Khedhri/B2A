@@ -12,7 +12,6 @@ const titleKeys: Record<string, string> = {
   "/dashboard/import":      "page.import",
   "/dashboard/estimation":  "page.estimation",
   "/dashboard/clients":     "page.clients",
-  "/dashboard/pace":        "page.pace",
   "/dashboard/audit-logs":  "page.audit",
   "/dashboard/profile":     "page.profile",
 };
