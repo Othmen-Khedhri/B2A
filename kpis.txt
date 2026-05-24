@@ -1,0 +1,417 @@
+OVERVIEW PAGE — COMPLETE EXPLANATION
+=====================================
+Everything shown on the Overview tab, what it means, and why it matters.
+No technical jargon. Written so you can explain it to anyone tomorrow.
+
+
+════════════════════════════════════════════════════════════════
+PART 1 — THE ANNUAL BUDGET PANEL  (collapsible block at the top)
+════════════════════════════════════════════════════════════════
+
+This block gives a 30-second health check for the whole firm for the current year.
+
+
+──────────────────────────────────────────────────────────────
+1. Active Clients
+──────────────────────────────────────────────────────────────
+
+What it shows:
+  The total number of clients who have a signed budget for this year.
+
+Why it matters:
+  It tells you how many relationships you are actively managing.
+  If this number changes unexpectedly, someone added or removed a contract.
+
+
+──────────────────────────────────────────────────────────────
+2. YTD Consumed  (Year To Date Consumed)
+──────────────────────────────────────────────────────────────
+
+What it shows:
+  The total number of hours your team has actually worked and logged
+  across ALL clients, from January 1st up to today.
+
+Plain example:
+  If it is May and your team has worked 1 200 hours so far this year,
+  this number says 1 200h.
+
+Why it matters:
+  It is your real workload meter. Compare it to the total budget to know
+  if you are ahead, behind, or on pace.
+
+
+──────────────────────────────────────────────────────────────
+3. YTD Client Gain  (Year To Date Client Gain)
+──────────────────────────────────────────────────────────────
+
+What it shows:
+  The difference between what all clients were billed for so far this year
+  and what your team actually consumed.
+
+  Positive (green)  = you worked fewer hours than you billed → profit margin
+  Negative (red)    = you worked more hours than you billed  → you are losing
+
+How it is calculated:
+  For each client:
+    (Hours per month on contract × number of months elapsed) − hours consumed so far
+
+  Then add all clients together.
+
+Plain example:
+  A client pays for 10h per month. It is May (4 months elapsed = January to April).
+  Your team worked 35h for them.
+  Their contribution: (10 × 4) − 35 = 40 − 35 = +5h gain.
+  Repeat for every client. The sum is the total YTD gain.
+
+Why it matters:
+  This is the single most important profitability number for the year so far.
+  If it is deeply negative, you are burning more capacity than you are billing.
+
+
+──────────────────────────────────────────────────────────────
+4. This Month's Hours
+──────────────────────────────────────────────────────────────
+
+What it shows:
+  The total hours logged by the whole team in the current calendar month.
+
+Why it matters:
+  A quick pulse check. If the number is unusually low mid-month,
+  timesheets may not have been submitted yet.
+
+
+──────────────────────────────────────────────────────────────
+5. Pace Health — On Track / At Risk / Over Budget  (the three coloured counters)
+──────────────────────────────────────────────────────────────
+
+What it shows:
+  Every client gets a traffic-light colour based on how fast the team is
+  consuming their internal hour budget compared to plan.
+
+How the colour is decided (the "pace" of consumption):
+  Green  — the team is consuming at or below 85% of the planned internal pace  → all good
+  Yellow — the team is consuming between 85% and 100% of the planned pace     → watch closely
+  Red    — the team is consuming faster than 100% of the planned pace         → already over
+
+Plain example:
+  You planned 10h/month for a client internally.
+  Your team actually worked an average of 11h/month.
+  That is 110% → Red.
+
+The counters simply tell you how many clients fall in each colour category.
+
+Why it matters:
+  Red count is the most urgent number. Every red client is a project where
+  the team is burning capacity faster than the contract allows.
+
+
+──────────────────────────────────────────────────────────────
+6. Timesheet Submission Progress  (the progress bar)
+──────────────────────────────────────────────────────────────
+
+What it shows:
+  How many collaborators have already submitted their timesheet for this month
+  vs how many need to.
+
+  Example: "3/7" means 3 have submitted, 4 have not.
+
+Why it matters:
+  Until a timesheet is submitted, the consumed hours for that person are not
+  counted in any of the calculations above. If many people are pending,
+  all the YTD numbers are understated.
+
+If there are pending people, their names are shown so you can follow up.
+
+
+════════════════════════════════════════════════════════════════
+PART 2 — THE THREE KPI CARDS  (the row of summary boxes below the panel)
+════════════════════════════════════════════════════════════════
+
+──────────────────────────────────────────────────────────────
+KPI 1 — Clients in Budget Overrun  (red card)
+──────────────────────────────────────────────────────────────
+
+What it shows:
+  The number of clients who are currently in the red zone:
+  either their burn rate exceeds 100% OR they have already consumed
+  more hours than they have been billed for year to date.
+
+Why it matters:
+  This is your immediate alert count. Zero is the goal.
+  Each client counted here needs a conversation or a corrective action.
+
+
+──────────────────────────────────────────────────────────────
+KPI 2 — Active Collaborators  (blue card)
+──────────────────────────────────────────────────────────────
+
+What it shows:
+  The total number of staff members tracked in the system
+  (collaborators and workers, not admins).
+
+  If a sub-line appears saying "X at burnout risk", that means
+  X people have been working at an unusually high pace recently.
+
+Why it matters:
+  Keeps the headcount visible. The burnout warning is an early signal
+  that workload needs to be redistributed.
+
+
+──────────────────────────────────────────────────────────────
+KPI 3 — Total YTD Gain  (green card)
+──────────────────────────────────────────────────────────────
+
+What it shows:
+  The combined YTD gain across the top 10 most profitable clients specifically
+  (not all clients — just the profitable ones from the top 10 rentable table).
+
+  Positive = those clients generated saved capacity so far this year.
+
+Why it matters:
+  It gives you a quick sense of how much "buffer" your best-performing
+  clients are providing.
+
+
+════════════════════════════════════════════════════════════════
+PART 3 — TOP 10 MOST PROFITABLE CLIENTS
+════════════════════════════════════════════════════════════════
+
+This table answers: "Which clients are we making the most margin on?"
+
+──────────────────────────────────────────────────────────────
+HOW THE RANKING IS DECIDED
+──────────────────────────────────────────────────────────────
+
+Clients are ranked by their "Gain YTD" from highest to lowest.
+The client at #1 has the biggest positive gap between what they were billed
+for and what was actually worked — meaning the most hours "saved" on their contract.
+
+If two clients had the same gain, the one that appears first in the database
+would be ranked higher (in practice this is rare).
+
+
+──────────────────────────────────────────────────────────────
+COLUMN BY COLUMN
+──────────────────────────────────────────────────────────────
+
+Rank (#1, #2 …)
+  Position in the ranking. #1 is the most profitable client this year so far.
+  The number is displayed in gold.
+
+Client
+  The client's name as registered in the annual budget.
+
+Superviseur (Supervisor)
+  The main person responsible for this client relationship internally.
+
+Client H/an  (Client Hours per Year)
+  How many hours the client is paying for per year, as written in the contract.
+
+  How it is calculated:
+    Monthly contracted hours × 12
+
+  Plain example:
+    A client paying for 40h/month → Client H/an = 480h.
+
+  Why it matters:
+    This is the ceiling. Your team must not exceed this number by the end of the year,
+    or you are working for free.
+
+Consommé YTD  (Consumed Year To Date)
+  The actual hours your team has worked for this client from January up to now.
+
+  Plain example:
+    It is May. Your team has logged 11h for this client across the year.
+    Consommé YTD = 11h.
+
+Gain YTD  (Gain Year To Date)  ← THE RANKING COLUMN
+  The profit margin in hours so far this year.
+
+  How it is calculated:
+    (Monthly contract hours × number of months elapsed) − hours consumed so far
+
+  Plain example:
+    Contract: 40h/month.  4 months elapsed.  11h consumed.
+    Gain YTD = (40 × 4) − 11 = 160 − 11 = +149h
+
+  Green number = you are ahead (profitable).
+  Red number   = you are behind (losing).
+
+  Why it matters:
+    This is the core profitability signal per client.
+    A large positive gain means the team is very efficient on this contract.
+
+Rythme moyen  (Average Pace)
+  How fast the team is consuming the INTERNAL hour budget on average,
+  expressed as a percentage.
+
+  How it is calculated:
+    Each month: hours worked that month ÷ internal hours planned for that month
+    Then average across all elapsed months.
+
+  Colour meaning:
+    Green  (below 85%)   → well under control
+    Yellow (85% to 100%) → approaching the limit, watch it
+    Red    (above 100%)  → already over the internal budget
+
+  Important distinction:
+    The "Client H/an" column is what the CLIENT pays for.
+    The internal hours used in "Rythme moyen" is B2A's OWN internal estimate of how
+    many hours it should realistically take. It may be lower than the client contract,
+    which is intentional — it creates a buffer for profit.
+
+  Plain example:
+    Internal plan: 6h/month.  January: 0,6h worked.  Pace = 0,6/6 = 10%.
+    February: 0h.  March: 0h.  April: 10,4h.  Pace = 10,4/6 = 173%.
+    Average pace over 4 months = (10% + 0% + 0% + 173%) / 4 ≈ 46%.
+    Displayed as: 46% (green — well under overall).
+
+
+════════════════════════════════════════════════════════════════
+PART 4 — TOP 10 BUDGET OVERRUN CLIENTS
+════════════════════════════════════════════════════════════════
+
+This table answers: "Which clients are bleeding the most hours?"
+
+──────────────────────────────────────────────────────────────
+WHO APPEARS IN THIS TABLE
+──────────────────────────────────────────────────────────────
+
+A client appears here if they meet at least ONE of these conditions:
+  - Their average pace is RED (consuming faster than 100% of internal plan)
+  - Their Gain YTD is negative (they have already consumed more than billed)
+
+This means a client can appear here even before a real financial loss,
+as a warning that the trajectory is bad.
+
+──────────────────────────────────────────────────────────────
+HOW THE RANKING IS DECIDED
+──────────────────────────────────────────────────────────────
+
+Ranked by Gain YTD from LOWEST to highest (most negative first).
+The client at #1 is the one with the worst overrun — the biggest gap between
+what was billed and what was consumed, in the wrong direction.
+
+──────────────────────────────────────────────────────────────
+COLUMN BY COLUMN
+──────────────────────────────────────────────────────────────
+
+Rank (#1, #2 …)
+  Position in the overrun ranking. #1 is the worst situation.
+  The number is displayed in red.
+
+Client
+  The client name.
+
+Superviseur (Supervisor)
+  The person responsible for this client.
+
+Client H/mois  (Client Hours per Month)
+  How many hours the client contracts for PER MONTH (not per year).
+  This is the raw monthly figure from the contract.
+
+  Note: unlike the profitable table which shows the annual total,
+  the overrun table uses the monthly figure to make the overrun
+  more visually obvious at a glance.
+
+Consommé YTD  (Consumed Year To Date)
+  Same as in the profitable table — actual hours worked since January.
+
+Dépassement  (Overrun)
+  The same "Gain YTD" number but shown here because it is negative.
+  It tells you by how many hours you are already over what was billed.
+
+  Plain example:
+    Client H/mois = 8h.  5 months elapsed.  52h consumed.
+    Billed so far = 8 × 5 = 40h.
+    Dépassement = 40 − 52 = −12h.
+    Meaning: the team has already worked 12 hours more than the client paid for.
+
+  The number is always shown in red here.
+
+Rythme moyen  (Average Pace)
+  Same calculation as in the profitable table.
+  Here the colour is always red or amber because these clients
+  are already in a problematic range.
+
+
+════════════════════════════════════════════════════════════════
+PART 5 — PROFITABILITY BY MANAGER  (the cards at the bottom)
+════════════════════════════════════════════════════════════════
+
+This section answers: "Which supervisor is managing the most profitable portfolio?"
+
+Each card represents one supervisor and summarises ALL the clients they are
+responsible for combined.
+
+──────────────────────────────────────────────────────────────
+WHAT EACH CARD SHOWS
+──────────────────────────────────────────────────────────────
+
+Supervisor name
+  The person responsible for those clients.
+
+YTD Gain Total  (the big number in the centre)
+  The sum of YTD gains across all of that supervisor's clients.
+  Green = their portfolio is profitable overall.
+  Red   = their portfolio is consuming more than billed overall.
+
+Average Pace bar
+  The average pace across all their clients combined, with the same traffic-light
+  colour logic (green/yellow/red). The bar fills from left to right —
+  a fully filled red bar means the portfolio is at or over 100% pace.
+
+Clients
+  How many clients that supervisor is responsible for.
+
+Clients in Overrun  (e.g. "2/5")
+  Out of their total clients, how many are currently in the red or
+  have a negative gain. If zero, all their clients are healthy.
+
+Consommé YTD
+  Total hours worked across all their clients year to date.
+
+Overrun Rate  (Taux de Dépassement)
+  The percentage of their clients that are in overrun.
+
+  How it is calculated:
+    (Number of clients in overrun ÷ total clients) × 100
+
+  Plain example:
+    Supervisor has 5 clients. 2 are in overrun. Overrun rate = 40%.
+
+  Why it matters:
+    A manager with a high overrun rate needs to look at how they are
+    allocating the team's time across their portfolio.
+
+
+════════════════════════════════════════════════════════════════
+QUICK REFERENCE — WHAT EACH COLOUR MEANS EVERYWHERE
+════════════════════════════════════════════════════════════════
+
+Green  → Good. Below 85% of internal pace. Comfortable margin.
+Yellow → Watch out. Between 85% and 100% of internal pace. No room for error.
+Red    → Problem. Above 100% of internal pace. The team is over-consuming.
+
+For gain numbers:
+  + (positive, green) → profitable, worked fewer hours than billed
+  − (negative, red)   → losing, worked more hours than billed
+
+
+════════════════════════════════════════════════════════════════
+THE KEY CONCEPT IN ONE PARAGRAPH
+════════════════════════════════════════════════════════════════
+
+Every client has two hour budgets:
+  1. What the CLIENT pays for (the contract) — this is the revenue ceiling.
+  2. What B2A internally plans to spend (always lower) — this is the cost target.
+
+"Gain YTD" measures how far you are from the revenue ceiling.
+"Rythme moyen / Average Pace" measures how far you are from the cost target.
+
+A client can be green on pace (team working efficiently) and still have a
+small gain if the contract hours are generous. A client can also be red on
+pace but still profitable if the contract had a lot of buffer hours.
+
+The ideal client: high gain YTD (lots of hours billed but not consumed)
+AND green pace (team is working well within the internal budget).

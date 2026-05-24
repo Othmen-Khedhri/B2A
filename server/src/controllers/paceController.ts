@@ -1,3 +1,16 @@
+// ─── Pace controller ──────────────────────────────────────────────────────────
+// Per-project pace monitoring and email alert system.
+// This is different from paceIndexController.ts which handles annual client budgets.
+// This controller focuses on individual Project documents and their burn rate.
+//
+//   GET  /api/projects/pace         — compute pace for all active projects
+//   POST /api/projects/pace/notify  — send pace alert emails to responsible managers
+//
+// Core metric: paceRatio = (% of hours used) / (% of contract time elapsed)
+//   paceRatio ≤ 1.00 → "On Track"
+//   paceRatio ≤ 1.25 → "At Risk"
+//   paceRatio >  1.25 → "Burning"
+
 import { Request, Response } from "express";
 import nodemailer from "nodemailer";
 import Project from "../models/Project";
@@ -9,44 +22,48 @@ import { logAudit } from "../utils/auditLogger";
 export type PaceLabel = "On Track" | "At Risk" | "Burning";
 
 export interface PaceEntry {
-  _id: string;
-  name: string;
-  clientName: string;
+  _id:                    string;
+  name:                   string;
+  clientName:             string;
   responsiblePartnerName: string;
-  budgetHours: number;
-  hoursConsumed: number;
-  startDate: string;
-  endDate: string;
-  status: string;
-  // computed
-  hoursProgress: number;      // % of budget hours used
-  timeProgress: number;       // % of contract duration elapsed
-  paceRatio: number;          // hoursProgress / timeProgress
-  paceLabel: PaceLabel;
-  estimatedFinishDate: string | null;
-  daysToDeadline: number;
-  estimatedOverrunDays: number;
-  managerEmail?: string;
+  budgetHours:            number;
+  hoursConsumed:          number;
+  startDate:              string;
+  endDate:                string;
+  status:                 string;
+  // Computed fields:
+  hoursProgress:          number;  // % of budget hours consumed (e.g. 72.5 = 72.5%)
+  timeProgress:           number;  // % of contract duration elapsed
+  paceRatio:              number;  // hoursProgress / timeProgress (1.0 = perfectly on pace)
+  paceLabel:              PaceLabel;
+  estimatedFinishDate:    string | null; // ISO date string of when hours will run out
+  daysToDeadline:         number;  // days until contract end (negative = already past)
+  estimatedOverrunDays:   number;  // days the estimated finish exceeds the contract end
+  managerEmail?:          string;
 }
 
-// ─── Core pace calculation ─────────────────────────────────────────────────────
-
+// ─── computePace ─────────────────────────────────────────────────────────────
+// Pure calculation function — no DB access. Takes raw project values and returns
+// all derived pace metrics.
+//
+// 5% minimum timeProgress guard: prevents absurd paceRatio values on the first day
+// of a project (e.g. logging 10h on day 1 of a 200h / 200-day project would show
+// hoursProgress=5%, timeProgress=0.5%, paceRatio=10× without the guard).
 function computePace(p: {
-  budgetHours: number;
+  budgetHours:   number;
   hoursConsumed: number;
-  startDate: Date;
-  endDate: Date;
+  startDate:     Date;
+  endDate:       Date;
 }) {
   const now = Date.now();
-  const MS = 1000 * 60 * 60 * 24;
+  const MS  = 1000 * 60 * 60 * 24; // milliseconds per day
 
   const contractDays = Math.max((p.endDate.getTime() - p.startDate.getTime()) / MS, 1);
-  const elapsedDays  = Math.max((now - p.startDate.getTime()) / MS, 0.01);
+  const elapsedDays  = Math.max((p.startDate.getTime() > now ? 0 : (now - p.startDate.getTime()) / MS), 0.01);
 
   const hoursProgress = p.budgetHours > 0 ? (p.hoursConsumed / p.budgetHours) * 100 : 0;
-  const timeProgress  = Math.min((elapsedDays / contractDays) * 100, 100);
-  // Use a minimum of 5% for timeProgress to avoid near-zero division blowup
-  // on projects that just started (e.g. day 1 of a 200-day contract)
+  const timeProgress  = Math.min((elapsedDays / contractDays) * 100, 100); // capped at 100%
+  // 5% floor on timeProgress to avoid paceRatio blowup on brand-new projects
   const paceRatio     = hoursProgress / Math.max(timeProgress, 5);
 
   let paceLabel: PaceLabel;
@@ -54,7 +71,7 @@ function computePace(p: {
   else if (paceRatio <= 1.25) paceLabel = "At Risk";
   else                        paceLabel = "Burning";
 
-  // Estimated finish based on current daily burn rate
+  // Estimate when the budget hours will run out based on the current daily burn rate
   const dailyBurn      = p.hoursConsumed / elapsedDays;
   const hoursRemaining = Math.max(p.budgetHours - p.hoursConsumed, 0);
 
@@ -62,12 +79,14 @@ function computePace(p: {
   let estimatedOverrunDays = 0;
 
   if (dailyBurn > 0 && hoursRemaining > 0) {
+    // Project how many days until hours run out at the current burn rate
     const daysToFinish   = hoursRemaining / dailyBurn;
     estimatedFinishDate  = new Date(now + daysToFinish * MS);
     estimatedOverrunDays = Math.max(
       (estimatedFinishDate.getTime() - p.endDate.getTime()) / MS, 0
     );
   } else if (p.hoursConsumed >= p.budgetHours && p.budgetHours > 0) {
+    // Already over budget — finish date is now, overrun = today - deadline
     estimatedFinishDate  = new Date(now);
     estimatedOverrunDays = Math.max((now - p.endDate.getTime()) / MS, 0);
   }
@@ -77,44 +96,50 @@ function computePace(p: {
   return { hoursProgress, timeProgress, paceRatio, paceLabel, estimatedFinishDate, daysToDeadline, estimatedOverrunDays };
 }
 
-// ─── GET /api/projects/pace ────────────────────────────────────────────────────
-
+// ─── GET /api/projects/pace ───────────────────────────────────────────────────
+// Returns pace metrics for all active projects that have already started.
+// Projects with a future startDate are excluded (no elapsed time → no meaningful pace).
+// Also resolves the responsible manager's email for the "notify" button on each row.
 export const getPaceReport = async (_req: Request, res: Response): Promise<void> => {
   try {
     const projects = await Project.find({ status: "active" }).sort({ startDate: 1 });
 
-    // Resolve manager emails in one query
-    const partnerIds = projects.map((p) => p.responsiblePartnerId).filter((id): id is NonNullable<typeof id> => id != null);
-    const managers   = await Expert.find({ _id: { $in: partnerIds } }).select("_id email");
-    const emailMap   = new Map<string, string>();
+    // Batch-resolve manager emails in one query rather than N individual lookups
+    const partnerIds = projects
+      .map((p) => p.responsiblePartnerId)
+      .filter((id): id is NonNullable<typeof id> => id != null);
+    const managers  = await Expert.find({ _id: { $in: partnerIds } }).select("_id email");
+    const emailMap  = new Map<string, string>();
     managers.forEach((m) => emailMap.set(m._id.toString(), m.email));
 
     const now = Date.now();
-    const report: PaceEntry[] = projects.filter((p) => p.startDate.getTime() <= now).map((p) => {
-      const pace = computePace({
-        budgetHours:   p.budgetHours,
-        hoursConsumed: p.hoursConsumed,
-        startDate:     p.startDate,
-        endDate:       p.endDate,
-      });
+    const report: PaceEntry[] = projects
+      .filter((p) => p.startDate.getTime() <= now) // skip projects not yet started
+      .map((p) => {
+        const pace = computePace({
+          budgetHours:   p.budgetHours,
+          hoursConsumed: p.hoursConsumed,
+          startDate:     p.startDate,
+          endDate:       p.endDate,
+        });
 
-      return {
-        _id:                    (p._id as { toString(): string }).toString(),
-        name:                   p.name,
-        clientName:             p.clientName,
-        responsiblePartnerName: p.responsiblePartnerName,
-        budgetHours:            p.budgetHours,
-        hoursConsumed:          p.hoursConsumed,
-        startDate:              p.startDate.toISOString(),
-        endDate:                p.endDate.toISOString(),
-        status:                 p.status,
-        managerEmail:           p.responsiblePartnerId
-                                  ? emailMap.get(p.responsiblePartnerId.toString())
-                                  : undefined,
-        ...pace,
-        estimatedFinishDate: pace.estimatedFinishDate?.toISOString() ?? null,
-      };
-    });
+        return {
+          _id:                    (p._id as { toString(): string }).toString(),
+          name:                   p.name,
+          clientName:             p.clientName,
+          responsiblePartnerName: p.responsiblePartnerName,
+          budgetHours:            p.budgetHours,
+          hoursConsumed:          p.hoursConsumed,
+          startDate:              p.startDate.toISOString(),
+          endDate:                p.endDate.toISOString(),
+          status:                 p.status,
+          managerEmail:           p.responsiblePartnerId
+                                    ? emailMap.get(p.responsiblePartnerId.toString())
+                                    : undefined,
+          ...pace,
+          estimatedFinishDate: pace.estimatedFinishDate?.toISOString() ?? null,
+        };
+      });
 
     res.json(report);
   } catch (err) {
@@ -123,8 +148,18 @@ export const getPaceReport = async (_req: Request, res: Response): Promise<void>
   }
 };
 
-// ─── POST /api/projects/pace/notify ───────────────────────────────────────────
-
+// ─── POST /api/projects/pace/notify ──────────────────────────────────────────
+// Sends pace alert emails to the responsible managers of "At Risk" or "Burning" projects.
+// Body: { projectIds?: string[] } — if omitted, checks ALL active projects.
+// Only sends emails for projects that are NOT "On Track".
+// In development (no EMAIL_USER/PASS), logs the email content to console instead.
+//
+// The email template is a branded HTML email with:
+//   - Pace status badge (red = Burning, amber = At Risk)
+//   - Hours consumed vs budget
+//   - Time progress %
+//   - Estimated finish date vs contract deadline
+//   - Overrun warning (if estimated finish is after deadline)
 export const sendPaceAlerts = async (req: Request, res: Response): Promise<void> => {
   try {
     const { projectIds } = req.body as { projectIds?: string[] };
@@ -134,9 +169,11 @@ export const sendPaceAlerts = async (req: Request, res: Response): Promise<void>
 
     const projects = await Project.find(filter);
 
-    // Manager email map (only the responsible partners of the queried projects)
-    const partnerIds = projects.map((p) => p.responsiblePartnerId).filter((id): id is NonNullable<typeof id> => id != null);
-    const managers   = await Expert.find({ _id: { $in: partnerIds } }).select("_id email name");
+    // Batch-resolve manager emails
+    const partnerIds = projects
+      .map((p) => p.responsiblePartnerId)
+      .filter((id): id is NonNullable<typeof id> => id != null);
+    const managers  = await Expert.find({ _id: { $in: partnerIds } }).select("_id email name");
     const managerMap = new Map<string, string>();
     managers.forEach((m) => managerMap.set(m._id.toString(), m.email));
 
@@ -157,8 +194,10 @@ export const sendPaceAlerts = async (req: Request, res: Response): Promise<void>
         endDate:       project.endDate,
       });
 
+      // Skip "On Track" projects — no alert needed
       if (pace.paceLabel === "On Track") continue;
 
+      // Collect the project manager's email as the recipient
       const recipientSet = new Set<string>();
       if (project.responsiblePartnerId) {
         const mEmail = managerMap.get(project.responsiblePartnerId.toString());
@@ -166,15 +205,18 @@ export const sendPaceAlerts = async (req: Request, res: Response): Promise<void>
       }
 
       const recipients = [...recipientSet].filter(Boolean);
-      if (!recipients.length) continue;
+      if (!recipients.length) continue; // no email on record for this manager
 
+      // Format helper for French-style date display
       const fmtDate = (d: Date) =>
         d.toLocaleDateString("fr-TN", { day: "2-digit", month: "long", year: "numeric" });
 
-      const deadline    = fmtDate(project.endDate);
-      const finishDate  = pace.estimatedFinishDate ? fmtDate(pace.estimatedFinishDate) : "Indéterminée";
-      const badgeColor  = pace.paceLabel === "Burning" ? "#ef4444" : "#f59e0b";
-      const badgeText   = pace.paceLabel === "Burning" ? "Dépassement critique" : "Risque de dépassement";
+      const deadline   = fmtDate(project.endDate);
+      const finishDate = pace.estimatedFinishDate ? fmtDate(pace.estimatedFinishDate) : "Indéterminée";
+      const badgeColor = pace.paceLabel === "Burning" ? "#ef4444" : "#f59e0b";
+      const badgeText  = pace.paceLabel === "Burning" ? "Dépassement critique" : "Risque de dépassement";
+
+      // Only show overrun warning if the estimated finish is after the deadline
       const overrunNote = pace.estimatedOverrunDays > 0
         ? `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:16px;margin-bottom:24px;">
              <p style="color:#dc2626;font-size:14px;font-weight:600;margin:0;">
@@ -183,6 +225,7 @@ export const sendPaceAlerts = async (req: Request, res: Response): Promise<void>
            </div>`
         : "";
 
+      // Branded HTML email template with B2A dark header and yellow logo
       const html = `<!DOCTYPE html>
 <html><body style="margin:0;padding:0;background:#f4f4f5;font-family:'Segoe UI',Arial,sans-serif;">
 <div style="max-width:560px;margin:32px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
@@ -233,24 +276,28 @@ export const sendPaceAlerts = async (req: Request, res: Response): Promise<void>
       const subject = `[B2A] Alerte rythme — ${project.name} (${badgeText})`;
 
       if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+        // Production: actually send the email
         await transporter.sendMail({
           from: `"B2A Platform" <${process.env.EMAIL_USER}>`,
-          to: recipients.join(", "),
+          to:   recipients.join(", "),
           subject,
           html,
         });
       } else {
+        // Development fallback: log to console instead of sending
         console.log(`[PACE ALERT - DEV] ${subject} → ${recipients.join(", ")}`);
       }
 
       results.push({ project: project.name, recipients, paceLabel: pace.paceLabel });
     }
 
+    // Log the email batch to the audit trail for traceability
     if (results.length > 0) {
       logAudit(req, {
-        action: "EMAIL_SENT", resource: "paceAlert",
+        action:      "EMAIL_SENT",
+        resource:    "paceAlert",
         description: `Sent pace alerts for ${results.length} project(s)`,
-        metadata: { results },
+        metadata:    { results },
       });
     }
     res.json({ sentCount: results.length, results });

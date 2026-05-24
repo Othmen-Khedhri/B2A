@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import {
   FolderKanban, Upload, X, FileSpreadsheet,
   Search, RefreshCw, Users, Clock, TrendingUp,
-  CheckCircle2, AlertCircle, AlertTriangle, ChevronDown,
+  CheckCircle2, AlertCircle, AlertTriangle, ChevronDown, Trash2,
 } from "lucide-react";
 import api from "../../../services/api";
 import { useToast } from "../../../context/ToastContext";
@@ -245,8 +245,10 @@ export default function ProjectsList() {
   const [clients, setClients]     = useState<BudgetClient[]>([]);
   const [paceMap, setPaceMap]     = useState<Record<string, PaceSummary>>({});
   const [loading, setLoading]     = useState(true);
-  const [search, setSearch]       = useState("");
+  const [search, setSearch]         = useState("");
   const [showImport, setShowImport] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting]     = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -269,6 +271,20 @@ export default function ProjectsList() {
   }, [year, toast]);
 
   useEffect(() => { load(); }, [load]);
+
+  const handleDelete = async (c: BudgetClient) => {
+    setDeleting(true);
+    try {
+      await api.delete(`/budget/${c.year}/${encodeURIComponent(c.clientName)}`);
+      toast(`Deleted budget for ${c.clientName}.`, "success");
+      setConfirmDeleteId(null);
+      load();
+    } catch {
+      toast("Failed to delete budget entry.", "error");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const filtered = clients.filter((c) => {
     const q = search.toLowerCase();
@@ -382,7 +398,33 @@ export default function ProjectsList() {
                     </p>
                     <p className="text-xs text-[#9E9EA3] mt-0.5 truncate">{year}</p>
                   </div>
-                  <HealthBadge health={health} />
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <HealthBadge health={health} />
+                    {confirmDeleteId === c._id ? (
+                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => handleDelete(c)}
+                          disabled={deleting}
+                          className="px-2 py-0.5 text-xs font-semibold rounded-lg bg-red-500 text-white hover:bg-red-600 transition disabled:opacity-50"
+                        >
+                          {deleting ? "…" : "Confirm"}
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="px-2 py-0.5 text-xs rounded-lg border border-[#CACAC4] dark:border-white/[0.10] text-[#6B6B6F] dark:text-[#9E9EA3] hover:bg-[#F2F2F2] dark:hover:bg-white/[0.04] transition"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(c._id); }}
+                        className="p-1 rounded-lg text-[#9E9EA3] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition opacity-0 group-hover:opacity-100"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Hours info */}

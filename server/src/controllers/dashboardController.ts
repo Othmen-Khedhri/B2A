@@ -1,3 +1,9 @@
+// ─── Dashboard controller ─────────────────────────────────────────────────────
+// Two endpoints that power the Overview page and the Header bell icon:
+//
+//   GET /api/dashboard/stats          — full KPI payload for the Overview page
+//   GET /api/dashboard/notifications  — alert counts for the bell icon
+
 import { Response } from "express";
 import mongoose from "mongoose";
 import { AuthRequest } from "../middleware/authMiddleware";
@@ -7,31 +13,39 @@ import TimeEntry from "../models/TimeEntry";
 import AnnualBudget from "../models/AnnualBudget";
 import Timesheet from "../models/Timesheet";
 
+// Sentinel value used in timesheet entries for internal (non-client) work
 const INTERNAL_CLIENT = "__internal__";
 
+// ─── ClientSummary type ───────────────────────────────────────────────────────
+// One record per client per year, computed from AnnualBudget + Timesheet data
 interface ClientSummary {
-  clientName: string;
-  primaryCollab: string;
+  clientName:      string;
+  primaryCollab:   string;
   secondaryCollab: string;
-  internalHours: number;
-  clientHours: number;
-  financialBudget: number;
-  totalConsumed: number;
-  ytdClientGain: number;
-  avgPace: number;
-  health: "green" | "yellow" | "red";
+  internalHours:   number;  // B2A's internal estimated hours per month
+  clientHours:     number;  // hours billed to the client per month
+  financialBudget: number;  // total contract value in TND
+  totalConsumed:   number;  // hours consumed YTD
+  ytdClientGain:   number;  // YTD billed hours − YTD consumed hours (positive = profitable)
+  avgPace:         number;  // average monthly consumption ratio vs internal budget
+  health:          "green" | "yellow" | "red"; // traffic light status
 }
 
+// ─── computeClientSummaries ───────────────────────────────────────────────────
+// Builds a ClientSummary for every client in the annual budget for the given year.
+// Reads from AnnualBudget (monthly targets) + Timesheet (actual hours logged).
 async function computeClientSummaries(year: number): Promise<ClientSummary[]> {
+  // Fetch budget targets and all timesheets for this year in parallel
   const [budgets, sheets] = await Promise.all([
     AnnualBudget.find({ year }).lean(),
     Timesheet.find({ year }).lean(),
   ]);
 
+  // Build: clientName(lower) → month → total consumed hours
   const consumedMap: Record<string, Record<number, number>> = {};
   for (const sheet of sheets) {
     for (const entry of sheet.entries) {
-      if (entry.clientName === INTERNAL_CLIENT) continue;
+      if (entry.clientName === INTERNAL_CLIENT) continue; // skip internal work
       const cn = entry.clientName.toLowerCase();
       const m  = new Date(entry.date).getMonth() + 1;
       if (!consumedMap[cn]) consumedMap[cn] = {};
@@ -48,6 +62,7 @@ async function computeClientSummaries(year: number): Promise<ClientSummary[]> {
     const consumed = consumedMap[cn] || {};
     let totalConsumed = 0, elapsedMonths = 0, paceSum = 0;
 
+    // Only include months that have actually passed (don't count future months)
     for (let m = 1; m <= 12; m++) {
       const isElapsed = year < currentYear || (year === currentYear && m <= currentMonth);
       if (!isElapsed) break;
@@ -57,7 +72,11 @@ async function computeClientSummaries(year: number): Promise<ClientSummary[]> {
     }
 
     const avgPace       = elapsedMonths > 0 ? paceSum / elapsedMonths : 0;
+    // ytdClientGain = what the client was billed for vs what was actually consumed
+    // Positive = we worked fewer hours than billed → profitable
     const ytdClientGain = elapsedMonths * b.clientHours - totalConsumed;
+
+    // Traffic light: red = over 100% pace, yellow = 85–100%, green = below 85%
     const health: "green" | "yellow" | "red" = avgPace > 1 ? "red" : avgPace > 0.85 ? "yellow" : "green";
 
     return {
@@ -75,8 +94,9 @@ async function computeClientSummaries(year: number): Promise<ClientSummary[]> {
   });
 }
 
-// Build name → coutHoraire map from all experts.
-// Split collaboratorsRaw ("Name1 | Name2 | ...") and average the rates.
+// ─── avgCollabRate ────────────────────────────────────────────────────────────
+// Parses a pipe-separated collaborator list and averages their hourly rates.
+// Used to estimate costConsumed for each project on the fly.
 const avgCollabRate = (collaboratorsRaw: string, rateByName: Map<string, number>): number => {
   const names = (collaboratorsRaw || "")
     .split(/[|,;]+/)
@@ -87,12 +107,14 @@ const avgCollabRate = (collaboratorsRaw: string, rateByName: Map<string, number>
   return rates.reduce((a, b) => a + b, 0) / rates.length;
 };
 
-// Recompute all cost-derived metrics live on every dashboard load.
-// costConsumed = hoursConsumed × avg(coutHoraire of project collaborators).
+// ─── recomputeLiveMetrics ─────────────────────────────────────────────────────
+// Recalculates costConsumed, paceIndex, grossMargin, etc. for ALL projects.
+// Called before every getStats request so the dashboard always shows fresh data.
+// Uses bulkWrite for efficiency (one DB round-trip for all projects).
 const recomputeLiveMetrics = async (): Promise<void> => {
   const now = Date.now();
 
-  // Build rate lookup once
+  // Build name → rate lookup once so we don't query Expert for each project
   const allExperts = await Expert.find().select("name coutHoraire").lean();
   const rateByName = new Map<string, number>();
   for (const e of allExperts) {
@@ -107,22 +129,25 @@ const recomputeLiveMetrics = async (): Promise<void> => {
 
   const ops = projects.map((p) => {
     const totalMs = new Date(p.endDate).getTime() - new Date(p.startDate).getTime();
-    // Use 5% minimum elapsed to avoid extreme pace values on projects that just started
+
+    // Clamp elapsed ratio: 5% minimum prevents insane pace values on day 1
     const elapsedRatio = totalMs > 0
       ? Math.min(Math.max((now - new Date(p.startDate).getTime()) / totalMs, 0.05), 1)
       : 1;
 
-    const hoursConsumed = Number(p.hoursConsumed) || 0;
-    const budgetHours   = Number(p.budgetHours)   || 0;
-    const budgetCost    = Number(p.budgetCost)     || 0;
+    const hoursConsumed  = Number(p.hoursConsumed) || 0;
+    const budgetHours    = Number(p.budgetHours)   || 0;
+    const budgetCost     = Number(p.budgetCost)    || 0;
 
-    const rate         = avgCollabRate((p as { collaboratorsRaw?: string }).collaboratorsRaw || "", rateByName);
-    const costConsumed = hoursConsumed * rate;
+    const rate           = avgCollabRate((p as { collaboratorsRaw?: string }).collaboratorsRaw || "", rateByName);
+    const costConsumed   = hoursConsumed * rate;
     const invoicedAmount = Number((p as { invoicedAmount?: number }).invoicedAmount) || 0;
 
+    // paceIndex = normalised burn rate; 1.0 = on pace, capped at 5 to avoid chart distortion
     const paceIndexHours = budgetHours > 0 ? Math.min((hoursConsumed / budgetHours) / elapsedRatio, 5) : 0;
     const paceIndexCost  = budgetCost  > 0 ? Math.min((costConsumed  / budgetCost)  / elapsedRatio, 5) : 0;
 
+    // Prefer actual billing for margin; fall back to budget when no invoicing data
     const grossMargin = invoicedAmount > 0
       ? invoicedAmount - costConsumed
       : budgetCost - costConsumed;
@@ -142,31 +167,36 @@ const recomputeLiveMetrics = async (): Promise<void> => {
   await Project.bulkWrite(ops);
 };
 
+// ─── GET /api/dashboard/stats ─────────────────────────────────────────────────
+// Returns the full analytics payload for the Overview page.
+// Runs recomputeLiveMetrics() first so pace values are always fresh.
 export const getStats = async (req: AuthRequest, res: Response): Promise<void> => {
+  // Don't attempt DB queries if the connection is not ready
   if (mongoose.connection.readyState !== 1) {
     res.status(503).json({ message: "Database not connected" });
     return;
   }
   try {
-    // Always recompute time-sensitive fields before reading stats
+    // Refresh all project metrics before reading — ensures consistency
     await recomputeLiveMetrics();
 
+    // Run all independent DB queries in parallel for maximum performance
     const [
       totalProjects,
       activeProjects,
-      overBudgetProjects,
-      atRiskProjects,
+      overBudgetProjects,    // paceIndexHours > 1.2 = burning
+      atRiskProjects,        // paceIndexHours between 1.0 and 1.2 = at risk
       totalStaff,
       burnoutRiskCount,
-      projectsByStatus,
-      topByPaceIndex,
-      recentTimeEntries,
-      ,  // top10Rentable — computed below
-      ,  // top10Depassement — computed below
-      rentByManager,
-      heuresCollab,
-      pendingAlerts,
-      anomalies,
+      projectsByStatus,      // count grouped by status (active/completed/etc.)
+      topByPaceIndex,        // top 5 most over-budget active projects
+      recentTimeEntries,     // hours logged per month over the last 6 months
+      ,                      // placeholders — replaced by computeClientSummaries below
+      ,
+      rentByManager,         // profitability grouped by responsible partner
+      heuresCollab,          // hours per collaborator with validation rates
+      pendingAlerts,         // collaborators with most pending timesheet entries
+      anomalies,             // most recent rejected timesheet entries
     ] = await Promise.all([
       Project.countDocuments(),
       Project.countDocuments({ status: "active" }),
@@ -175,123 +205,114 @@ export const getStats = async (req: AuthRequest, res: Response): Promise<void> =
       Expert.countDocuments(),
       Expert.countDocuments({ "burnoutFlags.flagged": true }),
 
+      // Group projects by status to build the status distribution pie chart
       Project.aggregate([
         { $group: { _id: "$status", count: { $sum: 1 } } },
         { $project: { status: "$_id", count: 1, _id: 0 } },
       ]),
 
+      // Top 5 active projects ordered by pace (highest burn rate first)
       Project.find({ status: "active" })
         .sort({ paceIndexHours: -1 })
         .limit(5)
         .select("name clientName paceIndexHours paceIndexCost status budgetHours hoursConsumed")
         .lean(),
 
+      // Hours logged per month, last 6 months — powers the "Hours Per Month" chart
       TimeEntry.aggregate([
         { $group: { _id: { $dateToString: { format: "%Y-%m", date: "$date" } }, totalHours: { $sum: "$hours" } } },
         { $sort: { _id: -1 } },
         { $limit: 6 },
       ]),
 
-      // Placeholder — replaced below after single computeClientSummaries call
-      Promise.resolve([]),
-      Promise.resolve([]),
+      Promise.resolve([]), // placeholder for top10Rentable
+      Promise.resolve([]), // placeholder for top10Depassement
 
-      // Profitability grouped by responsible partner
+      // Profitability per responsible partner — powers the "Rentabilité par Manager" section
       Project.aggregate([
         { $match: { responsiblePartnerName: { $ne: "" } } },
         {
           $group: {
-            _id: "$responsiblePartnerName",
-            nbProjets: { $sum: 1 },
-            budgetTotal: { $sum: "$budgetCost" },
-            coutTotal: { $sum: "$costConsumed" },
-            margeTotal: { $sum: "$grossMargin" },
+            _id:                "$responsiblePartnerName",
+            nbProjets:          { $sum: 1 },
+            budgetTotal:        { $sum: "$budgetCost" },
+            coutTotal:          { $sum: "$costConsumed" },
+            margeTotal:         { $sum: "$grossMargin" },
             projetsDepassement: { $sum: { $cond: [{ $gt: ["$paceIndexHours", 1] }, 1, 0] } },
           },
         },
         {
           $project: {
-            manager: "$_id",
-            _id: 0,
-            nbProjets: 1,
-            budgetTotal: 1,
-            coutTotal: 1,
-            margeTotal: 1,
-            projetsDepassement: 1,
+            manager: "$_id", _id: 0,
+            nbProjets: 1, budgetTotal: 1, coutTotal: 1, margeTotal: 1, projetsDepassement: 1,
+            // rentMoy = average margin percentage across the manager's portfolio
             rentMoy: {
-              $cond: [
-                { $gt: ["$budgetTotal", 0] },
-                { $multiply: [{ $divide: ["$margeTotal", "$budgetTotal"] }, 100] },
-                0,
-              ],
+              $cond: [{ $gt: ["$budgetTotal", 0] },
+                { $multiply: [{ $divide: ["$margeTotal", "$budgetTotal"] }, 100] }, 0],
             },
+            // tauxDep = percentage of projects that are over-budget
             tauxDep: {
-              $cond: [
-                { $gt: ["$nbProjets", 0] },
-                { $multiply: [{ $divide: ["$projetsDepassement", "$nbProjets"] }, 100] },
-                0,
-              ],
+              $cond: [{ $gt: ["$nbProjets", 0] },
+                { $multiply: [{ $divide: ["$projetsDepassement", "$nbProjets"] }, 100] }, 0],
             },
           },
         },
         { $sort: { rentMoy: -1 } },
       ]),
 
-      // Hours per collaborator (from TimeEntry aggregation)
+      // Hours per collaborator with breakdown by validation status
       TimeEntry.aggregate([
         {
           $group: {
-            _id: "$expertId",
-            expertName: { $first: "$expertName" },
-            totalHours: { $sum: "$hours" },
+            _id:            "$expertId",
+            expertName:     { $first: "$expertName" },
+            totalHours:     { $sum: "$hours" },
             validatedHours: { $sum: { $cond: [{ $eq: ["$validationStatus", "validated"] }, "$hours", 0] } },
-            pendingCount: { $sum: { $cond: [{ $eq: ["$validationStatus", "pending"] }, 1, 0] } },
-            rejectedCount: { $sum: { $cond: [{ $eq: ["$validationStatus", "rejected"] }, 1, 0] } },
+            pendingCount:   { $sum: { $cond: [{ $eq: ["$validationStatus", "pending"] }, 1, 0] } },
+            rejectedCount:  { $sum: { $cond: [{ $eq: ["$validationStatus", "rejected"] }, 1, 0] } },
           },
         },
+        // Join with users collection to get level and department
         { $lookup: { from: "users", localField: "_id", foreignField: "_id", as: "expert" } },
         { $unwind: { path: "$expert", preserveNullAndEmptyArrays: true } },
         {
           $project: {
             expertName: 1,
-            level: { $ifNull: ["$expert.level", "—"] },
+            level:      { $ifNull: ["$expert.level", "—"] },
             department: { $ifNull: ["$expert.department", "—"] },
-            totalHours: 1,
-            validatedHours: 1,
-            pendingCount: 1,
-            rejectedCount: 1,
+            totalHours: 1, validatedHours: 1, pendingCount: 1, rejectedCount: 1,
+            // txValidation = validated hours ÷ total hours as percentage
             txValidation: {
-              $cond: [
-                { $gt: ["$totalHours", 0] },
-                { $multiply: [{ $divide: ["$validatedHours", "$totalHours"] }, 100] },
-                0,
-              ],
+              $cond: [{ $gt: ["$totalHours", 0] },
+                { $multiply: [{ $divide: ["$validatedHours", "$totalHours"] }, 100] }, 0],
             },
           },
         },
         { $sort: { totalHours: -1 } },
       ]),
 
-      // Staff with most pending timesheets — grouped by expert + period
+      // Pending timesheet alerts — staff with the most unvalidated entries
       TimeEntry.aggregate([
         { $match: { validationStatus: "pending" } },
         {
+          // First group by (expertId, period) to count periods and entries
           $group: {
             _id: {
               expertId: "$expertId",
-              period: { $dateToString: { format: "%Y-%m", date: "$date" } },
+              period:   { $dateToString: { format: "%Y-%m", date: "$date" } },
             },
             expertName: { $first: "$expertName" },
-            nbEntries: { $sum: 1 },
+            nbEntries:  { $sum: 1 },
           },
         },
         {
+          // Then group by expertId to get the full picture per collaborator
           $group: {
-            _id: "$_id.expertId",
-            expertName: { $first: "$expertName" },
-            nbPeriods: { $sum: 1 },
+            _id:          "$_id.expertId",
+            expertName:   { $first: "$expertName" },
+            nbPeriods:    { $sum: 1 },
             totalPending: { $sum: "$nbEntries" },
-            periods: { $push: "$_id.period" },
+            periods:      { $push: "$_id.period" }, // list of pending months
           },
         },
         { $sort: { totalPending: -1 } },
@@ -300,16 +321,13 @@ export const getStats = async (req: AuthRequest, res: Response): Promise<void> =
         { $unwind: { path: "$expert", preserveNullAndEmptyArrays: true } },
         {
           $project: {
-            expertName: 1,
-            nbPeriods: 1,
-            totalPending: 1,
-            periods: 1,
+            expertName: 1, nbPeriods: 1, totalPending: 1, periods: 1,
             department: { $ifNull: ["$expert.department", "—"] },
           },
         },
       ]),
 
-      // Most recent rejected timesheets (anomalies)
+      // Most recent rejected entries — shown as anomalies at the bottom of the page
       TimeEntry.find({ validationStatus: "rejected" })
         .sort({ date: -1 })
         .limit(50)
@@ -317,19 +335,21 @@ export const getStats = async (req: AuthRequest, res: Response): Promise<void> =
         .lean(),
     ]);
 
-    // Compute client pace summaries once — derive top-10 lists and supervisor stats
+    // Compute client pace summaries once and derive the top-10 tables from them
     const clientSummaries = await computeClientSummaries(new Date().getFullYear());
 
+    // Top 10 most profitable clients (highest ytdClientGain)
     const top10RentableFinal = [...clientSummaries]
       .sort((a, b) => b.ytdClientGain - a.ytdClientGain)
       .slice(0, 10);
 
+    // Top 10 worst performing clients (lowest ytdClientGain or red health)
     const top10DepassementFinal = [...clientSummaries]
       .filter((c) => c.health === "red" || c.ytdClientGain < 0)
       .sort((a, b) => a.ytdClientGain - b.ytdClientGain)
       .slice(0, 10);
 
-    // Group by primaryCollab to build supervisor portfolio stats
+    // Build supervisor portfolio stats from client summaries
     const supervisorMap = new Map<string, {
       nbClients: number; totalClientHours: number;
       totalConsumed: number; totalYtdGain: number;
@@ -372,7 +392,7 @@ export const getStats = async (req: AuthRequest, res: Response): Promise<void> =
       burnoutRiskCount,
       projectsByStatus,
       topByPaceIndex,
-      hoursPerMonth: recentTimeEntries.reverse(),
+      hoursPerMonth:    recentTimeEntries.reverse(), // reverse so months are in chronological order
       top10Rentable:    top10RentableFinal,
       top10Depassement: top10DepassementFinal,
       rentByManager:    supervisorStats,
@@ -386,33 +406,32 @@ export const getStats = async (req: AuthRequest, res: Response): Promise<void> =
   }
 };
 
-/**
- * GET /api/dashboard/notifications
- * Returns real-time notification data for the Header bell icon.
- */
+// ─── GET /api/dashboard/notifications ────────────────────────────────────────
+// Returns the four alert categories shown in the Header bell icon.
+// Polled every 5 minutes by the frontend.
 export const getNotifications = async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const [overBudget, burnoutStaff, pendingEntries, atRisk] = await Promise.all([
-      // Top 5 projects where paceIndexHours > 1.2 (Burning)
+      // Projects that are actively burning budget (pace > 1.2)
       Project.find({ paceIndexHours: { $gt: 1.2 } })
         .sort({ paceIndexHours: -1 })
         .limit(5)
         .select("_id name clientName paceIndexHours")
         .lean(),
 
-      // All staff currently flagged for burnout
+      // All staff currently flagged for burnout (> 160h/month)
       Expert.find({ "burnoutFlags.flagged": true })
         .select("_id name burnoutFlags")
         .lean(),
 
-      // Pending timesheet count + top 3 experts
+      // Pending timesheet entries grouped by expert — gives the count + top 3 names
       TimeEntry.aggregate([
         { $match: { validationStatus: "pending" } },
         { $group: { _id: "$expertId", expertName: { $first: "$expertName" }, count: { $sum: 1 } } },
         { $sort: { count: -1 } },
       ]),
 
-      // Top 5 at-risk projects (paceIndexHours between 1.0 and 1.2)
+      // Projects in the yellow zone (pace between 1.0 and 1.2 = at risk)
       Project.find({ paceIndexHours: { $gt: 1.0, $lte: 1.2 } })
         .sort({ paceIndexHours: -1 })
         .limit(5)
@@ -420,8 +439,10 @@ export const getNotifications = async (_req: AuthRequest, res: Response): Promis
         .lean(),
     ]);
 
-    const pendingCount  = pendingEntries.reduce((s: number, e: { count: number }) => s + e.count, 0);
-    const topExperts    = (pendingEntries as { expertName: string; count: number }[])
+    // Total count of pending entries across all experts
+    const pendingCount = pendingEntries.reduce((s: number, e: { count: number }) => s + e.count, 0);
+    // Top 3 experts with the most pending entries (shown in the bell dropdown)
+    const topExperts   = (pendingEntries as { expertName: string; count: number }[])
       .slice(0, 3)
       .map((e) => ({ name: e.expertName, count: e.count }));
 

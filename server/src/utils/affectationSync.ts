@@ -1,24 +1,30 @@
+// ─── Affectation sync utilities ───────────────────────────────────────────────
+// The Affectation collection mirrors which experts are currently assigned to
+// which active projects. It is a derived / cached collection — the source of
+// truth is Project.assignedStaff.
+//
+// Three exported functions:
+//   syncProjectAffectations  — sync affectations for ONE project (called on save)
+//   removeProjectAffectations — delete all records for a deleted project
+//   rebuildAllAffectations   — full wipe-and-rebuild for the admin repair endpoint
+
 import mongoose from "mongoose";
 import Affectation from "../models/Affectation";
 import Expert from "../models/Expert";
 import Project from "../models/Project";
 
-/**
- * Rebuilds the affectations collection for one project.
- *
- * Rules:
- *  - Only active projects keep affectation records.
- *  - When a project becomes completed / cancelled / on-hold, all its
- *    affectation records are deleted.
- *  - When assignedStaff changes, stale entries are removed and new ones
- *    are upserted.
- */
+// ─── syncProjectAffectations ─────────────────────────────────────────────────
+// Keeps the Affectation collection in sync with a single project's assignedStaff.
+// Rules:
+//   - Non-active projects (completed / cancelled / on-hold) have no affectations
+//   - Staff removed from the project have their record deleted
+//   - New staff members get an upserted record
 export const syncProjectAffectations = async (projectId: string): Promise<void> => {
   const project = await Project.findById(projectId)
     .select("name clientName externalId type status assignedStaff")
     .lean();
 
-  // Project deleted or non-active → remove all its affectation records
+  // If the project was deleted or is no longer active, remove all its records
   if (!project || project.status !== "active") {
     await Affectation.deleteMany({ projectId: new mongoose.Types.ObjectId(projectId) });
     return;
@@ -26,23 +32,24 @@ export const syncProjectAffectations = async (projectId: string): Promise<void> 
 
   const assignedIds = (project.assignedStaff ?? []).map((id) => id.toString());
 
-  // Remove records for staff no longer on this project
   if (assignedIds.length > 0) {
+    // Delete records for experts that are no longer in the assignedStaff array
     await Affectation.deleteMany({
       projectId: new mongoose.Types.ObjectId(projectId),
-      expertId: { $nin: assignedIds.map((id) => new mongoose.Types.ObjectId(id)) },
+      expertId:  { $nin: assignedIds.map((id) => new mongoose.Types.ObjectId(id)) },
     });
   } else {
-    // Nobody assigned → clear all
+    // Nobody assigned to this project — clear everything
     await Affectation.deleteMany({ projectId: new mongoose.Types.ObjectId(projectId) });
     return;
   }
 
-  // Upsert one record per assigned staff member
+  // Upsert one Affectation record per currently-assigned expert
   for (const expertId of assignedIds) {
     const expert = await Expert.findById(expertId).select("name").lean();
-    if (!expert) continue;
+    if (!expert) continue; // skip if the expert was deleted
 
+    // findOneAndUpdate with upsert:true creates if not exists, updates if it does
     await Affectation.findOneAndUpdate(
       {
         expertId:  new mongoose.Types.ObjectId(expertId),
@@ -63,21 +70,18 @@ export const syncProjectAffectations = async (projectId: string): Promise<void> 
   }
 };
 
-/**
- * Remove every affectation record that references this project.
- * Call this when a project is deleted.
- */
+// ─── removeProjectAffectations ───────────────────────────────────────────────
+// Called when a project is permanently deleted to clean up its affectation records.
 export const removeProjectAffectations = async (projectId: string): Promise<void> => {
   await Affectation.deleteMany({ projectId: new mongoose.Types.ObjectId(projectId) });
 };
 
-/**
- * Rebuild affectations for ALL active projects.
- * Useful as a one-time repair endpoint.
- */
+// ─── rebuildAllAffectations ───────────────────────────────────────────────────
+// Admin-only repair: wipes the entire affectations collection and rebuilds it
+// from scratch based on current Project.assignedStaff values.
+// Returns the count of records upserted.
 export const rebuildAllAffectations = async (): Promise<number> => {
-  // Wipe everything, then rebuild from scratch
-  await Affectation.deleteMany({});
+  await Affectation.deleteMany({}); // full wipe
 
   const activeProjects = await Project.find({ status: "active" })
     .select("_id name clientName externalId type status assignedStaff")

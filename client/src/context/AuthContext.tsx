@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, useRef, useCallback } f
 import type { ReactNode } from "react";
 import api from "../services/api";
 
-export type Role = "admin" | "manager" | "collaborator";
+export type Role = "admin" | "manager" | "collaborator" | "worker";
 
 export interface AuthUser {
   id: string;
@@ -10,6 +10,7 @@ export interface AuthUser {
   email: string;
   role: Role;
   level: string;
+  avatarUrl?: string;
 }
 
 interface AuthContextType {

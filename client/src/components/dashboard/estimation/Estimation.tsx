@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Brain, ChevronRight, TrendingUp, Banknote, FolderOpen,
   Sparkles, Users, Gauge, CalendarClock, Layers, Building2, Info,
+  Database, Plus, Upload, RefreshCw, CheckCircle2, ChevronDown, ChevronUp,
 } from "lucide-react";
 import {
   HISTORICAL_PROJECTS, PROJECT_TYPES, CLIENT_SECTORS,
@@ -303,6 +304,18 @@ const Estimation = () => {
   const [retraining, setRetraining]   = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Training data management panel
+  const [showManage, setShowManage]     = useState(false);
+  const [activeTab, setActiveTab]       = useState<"add" | "import">("add");
+  const [addForm, setAddForm]           = useState({
+    client: "", type: PROJECT_TYPES[0], sector: CLIENT_SECTORS[0],
+    complexity: "Moyenne" as ComplexityLevel,
+    hBudget: "", hReal: "", rentPct: "",
+  });
+  const [addingRecord, setAddingRecord] = useState(false);
+  const [addSuccess, setAddSuccess]     = useState(false);
+  const [lastRetrainedAt, setLastRetrainedAt] = useState<string | null>(null);
+
   const [projectType, setProjectType] = useState(PROJECT_TYPES[0]);
   const [sector, setSector]           = useState(CLIENT_SECTORS[0]);
   const [complexity, setComplexity]   = useState<ComplexityLevel>("Moyenne");
@@ -366,11 +379,34 @@ const Estimation = () => {
   const handleRetrain = async () => {
     try {
       setRetraining(true);
-      await api.post("/estimations/retrain");
+      const { data } = await api.post<{ lastRetrainedAt?: string }>("/estimations/retrain");
+      if (data?.lastRetrainedAt) setLastRetrainedAt(data.lastRetrainedAt);
       await fetchDataset();
       setResult(null);
     } finally {
       setRetraining(false);
+    }
+  };
+
+  const handleAddRecord = async () => {
+    if (!addForm.client.trim()) return;
+    try {
+      setAddingRecord(true);
+      await api.post("/estimations/add", {
+        client:     addForm.client,
+        type:       addForm.type,
+        sector:     addForm.sector,
+        complexity: addForm.complexity,
+        hBudget:    Number(addForm.hBudget) || 0,
+        hReal:      Number(addForm.hReal)   || 0,
+        rentPct:    Number(addForm.rentPct) || 0,
+      });
+      setAddSuccess(true);
+      setAddForm(f => ({ ...f, client: "", hBudget: "", hReal: "", rentPct: "" }));
+      await fetchDataset();
+      setTimeout(() => setAddSuccess(false), 2500);
+    } finally {
+      setAddingRecord(false);
     }
   };
 
@@ -417,48 +453,190 @@ const Estimation = () => {
             <h2 className="font-bold text-[#0D0D0D] dark:text-white text-sm tracking-tight">Project Parameters</h2>
           </div>
 
-          {/* Admin data controls */}
-          <div className="rounded-xl border border-[#CACAC4] dark:border-white/[0.06] p-4 bg-[#E2E2DC] dark:bg-[#1A1A1D] space-y-3">
-            <div className="flex items-center gap-2">
-              <Info className="w-3.5 h-3.5 text-[#9E9EA3]" />
-              <p className="text-xs font-bold text-[#6B6B6F] dark:text-[#9E9EA3]">Admin data</p>
-              {dataLoading && <span className="text-[10px] text-[#9E9EA3]">loading…</span>}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".xlsx"
-                onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
-                className="hidden"
-              />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-[#CACAC4] dark:border-white/[0.06] text-[#6B6B6F] dark:text-[#9E9EA3] hover:bg-white/70 dark:hover:bg-white/[0.04] transition"
-              >
-                Choose file
-              </button>
-              <span className="text-xs text-[#9E9EA3] truncate max-w-[220px]">
-                {uploadFile ? uploadFile.name : "No file selected"}
-              </span>
-              <button
-                onClick={handleUpload}
-                disabled={!uploadFile || uploading}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-[#CACAC4] dark:border-white/[0.06] text-[#6B6B6F] dark:text-[#9E9EA3] hover:bg-white/70 dark:hover:bg-white/[0.04] transition disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {uploading ? "Uploading…" : "Upload & merge"}
-              </button>
-              <button
-                onClick={handleRetrain}
-                disabled={retraining}
-                className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-[#CACAC4] dark:border-white/[0.06] text-[#6B6B6F] dark:text-[#9E9EA3] hover:bg-white/70 dark:hover:bg-white/[0.04] transition disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {retraining ? "Retraining…" : "Recalculate"}
-              </button>
-            </div>
-            <p className="text-[10px] text-[#9E9EA3]">
-              Upload adds new rows; retrain syncs all completed projects.
-            </p>
+          {/* Training Data Management */}
+          <div className="rounded-xl border border-[#CACAC4] dark:border-white/[0.06] overflow-hidden">
+
+            {/* Collapsed header */}
+            <button
+              onClick={() => setShowManage(v => !v)}
+              className="w-full flex items-center justify-between px-4 py-3 bg-[#E2E2DC] dark:bg-[#1A1A1D] hover:bg-[#D5D5CF] dark:hover:bg-white/[0.04] transition"
+            >
+              <div className="flex items-center gap-2">
+                <Database className="w-3.5 h-3.5 text-[#9E9EA3]" />
+                <span className="text-xs font-bold text-[#6B6B6F] dark:text-[#9E9EA3]">Training Data</span>
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-[#FFD600]/20 text-[#6B6B6F] dark:text-[#9E9EA3]">
+                  {dataLoading ? "…" : dataset.length} records
+                </span>
+              </div>
+              {showManage
+                ? <ChevronUp className="w-3.5 h-3.5 text-[#9E9EA3]" />
+                : <ChevronDown className="w-3.5 h-3.5 text-[#9E9EA3]" />}
+            </button>
+
+            {showManage && (
+              <div className="p-4 space-y-4 bg-[#E2E2DC]/40 dark:bg-[#1A1A1D]/40">
+
+                {/* Tabs */}
+                <div className="flex gap-1 p-1 bg-[#E2E2DC] dark:bg-[#1A1A1D] rounded-lg">
+                  {(["add", "import"] as const).map(tab => (
+                    <button key={tab} onClick={() => setActiveTab(tab)}
+                      className={`flex-1 py-1.5 rounded-md text-xs font-semibold transition ${
+                        activeTab === tab
+                          ? "bg-white dark:bg-[#2A2A2E] text-[#0D0D0D] dark:text-white shadow-sm"
+                          : "text-[#9E9EA3] hover:text-[#6B6B6F] dark:hover:text-white/60"
+                      }`}
+                    >
+                      {tab === "add" ? "Add entry" : "Import Excel"}
+                    </button>
+                  ))}
+                </div>
+
+                {/* ── Add entry tab ── */}
+                {activeTab === "add" && (
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-[10px] font-bold text-[#9E9EA3] uppercase tracking-wider mb-1">Client name</p>
+                      <input
+                        type="text"
+                        value={addForm.client}
+                        onChange={e => setAddForm(f => ({ ...f, client: e.target.value }))}
+                        placeholder="e.g. ACME Corp"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#CACAC4] dark:border-white/[0.06] bg-white dark:bg-[#2A2A2E] text-[#0D0D0D] dark:text-white text-xs placeholder:text-[#9E9EA3]"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <p className="text-[10px] font-bold text-[#9E9EA3] uppercase tracking-wider mb-1">Mission type</p>
+                        <select
+                          value={addForm.type}
+                          onChange={e => setAddForm(f => ({ ...f, type: e.target.value }))}
+                          className="w-full px-2.5 py-1.5 rounded-lg border border-[#CACAC4] dark:border-white/[0.06] bg-white dark:bg-[#2A2A2E] text-[#0D0D0D] dark:text-white text-xs"
+                        >
+                          {PROJECT_TYPES.map(t => <option key={t}>{t}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-[#9E9EA3] uppercase tracking-wider mb-1">Sector</p>
+                        <select
+                          value={addForm.sector}
+                          onChange={e => setAddForm(f => ({ ...f, sector: e.target.value }))}
+                          className="w-full px-2.5 py-1.5 rounded-lg border border-[#CACAC4] dark:border-white/[0.06] bg-white dark:bg-[#2A2A2E] text-[#0D0D0D] dark:text-white text-xs"
+                        >
+                          {CLIENT_SECTORS.map(s => <option key={s}>{s}</option>)}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-[10px] font-bold text-[#9E9EA3] uppercase tracking-wider mb-1">Complexity</p>
+                      <div className="flex gap-1">
+                        {COMPLEXITY_LEVELS.map(c => (
+                          <button key={c} onClick={() => setAddForm(f => ({ ...f, complexity: c }))}
+                            className={`flex-1 py-1.5 rounded-md text-[10px] font-bold border transition ${
+                              addForm.complexity === c ? complexityColors[c] : inactiveBtn
+                            }`}
+                          >
+                            {c}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { label: "Est. hours", key: "hBudget" as const },
+                        { label: "Act. hours", key: "hReal"   as const },
+                        { label: "Margin %",   key: "rentPct" as const },
+                      ].map(({ label, key }) => (
+                        <div key={key}>
+                          <p className="text-[10px] font-bold text-[#9E9EA3] uppercase tracking-wider mb-1">{label}</p>
+                          <input
+                            type="number"
+                            min={0}
+                            value={addForm[key]}
+                            onChange={e => setAddForm(f => ({ ...f, [key]: e.target.value }))}
+                            className="w-full px-2.5 py-1.5 rounded-lg border border-[#CACAC4] dark:border-white/[0.06] bg-white dark:bg-[#2A2A2E] text-[#0D0D0D] dark:text-white text-xs text-right"
+                          />
+                        </div>
+                      ))}
+                    </div>
+
+                    <button
+                      onClick={handleAddRecord}
+                      disabled={!addForm.client.trim() || addingRecord}
+                      className="w-full py-2 rounded-lg text-xs font-semibold border border-[#CACAC4] dark:border-white/[0.06] text-[#6B6B6F] dark:text-[#9E9EA3] hover:bg-white/70 dark:hover:bg-white/[0.04] transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                    >
+                      {addingRecord ? (
+                        <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
+                      ) : addSuccess ? (
+                        <><CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /><span className="text-emerald-600 dark:text-emerald-400">Added!</span></>
+                      ) : (
+                        <><Plus className="w-3.5 h-3.5" /> Add to dataset</>
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                {/* ── Import Excel tab ── */}
+                {activeTab === "import" && (
+                  <div className="space-y-3">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".xlsx"
+                      onChange={e => setUploadFile(e.target.files?.[0] ?? null)}
+                      className="hidden"
+                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold border border-[#CACAC4] dark:border-white/[0.06] text-[#6B6B6F] dark:text-[#9E9EA3] hover:bg-white/70 dark:hover:bg-white/[0.04] transition"
+                      >
+                        Choose file
+                      </button>
+                      <span className="text-xs text-[#9E9EA3] truncate flex-1 min-w-0">
+                        {uploadFile ? uploadFile.name : "No file selected"}
+                      </span>
+                    </div>
+                    <button
+                      onClick={handleUpload}
+                      disabled={!uploadFile || uploading}
+                      className="w-full py-2 rounded-lg text-xs font-semibold border border-[#CACAC4] dark:border-white/[0.06] text-[#6B6B6F] dark:text-[#9E9EA3] hover:bg-white/70 dark:hover:bg-white/[0.04] transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                    >
+                      {uploading
+                        ? <><span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" /> Uploading…</>
+                        : <><Upload className="w-3.5 h-3.5" /> Upload & merge</>}
+                    </button>
+                    <p className="text-[10px] text-[#9E9EA3]">
+                      Adds completed-project rows from the Excel file to the training dataset.
+                    </p>
+                  </div>
+                )}
+
+                {/* Retrain button */}
+                <div className="pt-1 border-t border-[#CACAC4] dark:border-white/[0.06] space-y-2">
+                  {lastRetrainedAt && (
+                    <p className="text-[10px] text-[#9E9EA3]">
+                      Last retrained:{" "}
+                      {new Date(lastRetrainedAt).toLocaleDateString("en-GB", {
+                        day: "numeric", month: "short", year: "numeric",
+                      })}
+                    </p>
+                  )}
+                  <button
+                    onClick={handleRetrain}
+                    disabled={retraining}
+                    className="w-full py-2.5 rounded-lg text-xs font-bold bg-[#0D0D0D] dark:bg-white text-white dark:text-[#0D0D0D] hover:bg-[#2A2A2E] dark:hover:bg-[#E2E2DC] transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+                  >
+                    {retraining
+                      ? <><span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" /> Retraining model…</>
+                      : <><RefreshCw className="w-3.5 h-3.5" /> Retrain ML model</>}
+                  </button>
+                </div>
+
+              </div>
+            )}
           </div>
 
           {/* Project type */}

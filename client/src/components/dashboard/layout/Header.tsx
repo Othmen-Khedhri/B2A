@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from "react";
-import { Sun, Moon, Bell, ChevronRight, LayoutDashboard, FolderKanban, Users, Grid3X3, Upload, Brain, Building2, FileText, X, AlertTriangle, CheckCircle, Info } from "lucide-react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { Sun, Moon, Bell, ChevronRight, LayoutDashboard, FolderKanban, Users, Grid3X3, Upload, Brain, Building2, FileText, X, AlertTriangle, CheckCircle, Info, FileSpreadsheet, UserPlus, Scissors, ShieldCheck, UserCircle } from "lucide-react";
 import { useTheme } from "../../../context/ThemeContext";
 import { useLanguage } from "../../../context/LanguageContext";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -11,13 +11,18 @@ interface HeaderProps {
 }
 
 const routeIcons: Record<string, React.ElementType> = {
-  "/dashboard":             LayoutDashboard,
-  "/dashboard/projects":    FolderKanban,
-  "/dashboard/staff":       Users,
-  "/dashboard/assignments": Grid3X3,
-  "/dashboard/import":      Upload,
-  "/dashboard/estimation":  Brain,
-  "/dashboard/clients":     Building2,
+  "/dashboard":               LayoutDashboard,
+  "/dashboard/projects":      FolderKanban,
+  "/dashboard/staff":         Users,
+  "/dashboard/assignments":   Grid3X3,
+  "/dashboard/timesheets":    FileSpreadsheet,
+  "/dashboard/import":        Upload,
+  "/dashboard/parse":         Scissors,
+  "/dashboard/estimation":    Brain,
+  "/dashboard/team-builder":  UserPlus,
+  "/dashboard/clients":       Building2,
+  "/dashboard/audit-logs":    ShieldCheck,
+  "/dashboard/profile":       UserCircle,
 };
 
 interface NotifItem {
@@ -26,6 +31,13 @@ interface NotifItem {
   title: string;
   body: string;
   href?: string;
+}
+
+interface RawNotifData {
+  overBudget:        { _id: string; name: string; clientName: string; paceIndexHours: number }[];
+  pendingTimesheets: { count: number; topExperts: { name: string; count: number }[] };
+  burnoutStaff:      { _id: string; name: string }[];
+  atRisk:            { _id: string; name: string; clientName: string; paceIndexHours: number }[];
 }
 
 const notifIcons = {
@@ -41,71 +53,104 @@ const Header = ({ title, onToggleSidebar }: HeaderProps) => {
   const { pathname }           = useLocation();
   const navigate               = useNavigate();
 
-  const [notifOpen, setNotifOpen]         = useState(false);
-  const [dismissed, setDismissed]         = useState<string[]>([]);
-  const [notifications, setNotifications] = useState<NotifItem[]>([]);
-  const notifRef                          = useRef<HTMLDivElement>(null);
+  const [notifOpen, setNotifOpen]     = useState(false);
+  const [rawData, setRawData]         = useState<RawNotifData | null>(null);
+  const [panelAnchor, setPanelAnchor] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
+  const notifRef                      = useRef<HTMLDivElement>(null);
+
+  // Persist dismissed IDs across page reloads
+  const [dismissed, setDismissed] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("notif-dismissed") ?? "[]"); }
+    catch { return []; }
+  });
 
   const baseRoute = "/" + pathname.split("/").slice(1, 3).join("/");
   const PageIcon  = routeIcons[baseRoute] ?? FileText;
-  const unread    = notifications.filter(n => !dismissed.includes(n.id)).length;
 
+  // Derive translated notification items at render time — no re-fetch needed on language switch
+  const notifications = useMemo((): NotifItem[] => {
+    if (!rawData) return [];
+    const items: NotifItem[] = [];
+
+    for (const p of rawData.overBudget) {
+      items.push({
+        id:   `overbudget-${p._id}`,
+        type: "warning",
+        title: t("notif.over_budget"),
+        body:  `${p.name} (${p.clientName}) — pace ${p.paceIndexHours.toFixed(2)}`,
+        href:  "/dashboard/projects",
+      });
+    }
+
+    if (rawData.pendingTimesheets.count > 0) {
+      items.push({
+        id:   "pending-timesheets",
+        type: "info",
+        title: `${rawData.pendingTimesheets.count} ${t("notif.timesheets_pending")}`,
+        body:  rawData.pendingTimesheets.topExperts.map(e => `${e.name} (${e.count})`).join(", "),
+        href:  "/dashboard",
+      });
+    }
+
+    for (const e of rawData.burnoutStaff) {
+      items.push({
+        id:   `burnout-${e._id}`,
+        type: "error",
+        title: t("notif.burnout_risk"),
+        body:  e.name,
+        href:  `/dashboard/staff/${e._id}`,
+      });
+    }
+
+    for (const p of rawData.atRisk) {
+      items.push({
+        id:   `atrisk-${p._id}`,
+        type: "info",
+        title: t("notif.at_risk"),
+        body:  `${p.name} — pace ${p.paceIndexHours.toFixed(2)}`,
+        href:  "/dashboard/projects",
+      });
+    }
+
+    return items;
+  }, [rawData, lang]); // lang re-derives translations without a new network request
+
+  // Prune dismissed IDs that no longer exist so re-appearing alerts show as new
+  useEffect(() => {
+    if (!rawData) return;
+    const currentIds = new Set(notifications.map(n => n.id));
+    setDismissed(prev => {
+      const pruned = prev.filter(id => currentIds.has(id));
+      localStorage.setItem("notif-dismissed", JSON.stringify(pruned));
+      return pruned;
+    });
+  }, [rawData]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const unread = notifications.filter(n => !dismissed.includes(n.id)).length;
+
+  const dismissOne = (id: string) => {
+    setDismissed(prev => {
+      const next = [...prev, id];
+      localStorage.setItem("notif-dismissed", JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const dismissAll = () => {
+    const ids = notifications.map(n => n.id);
+    setDismissed(ids);
+    localStorage.setItem("notif-dismissed", JSON.stringify(ids));
+  };
+
+  // Fetch only raw server data — no translation logic here
   const fetchNotifications = useCallback(async () => {
     try {
-      const { data } = await api.get<{
-        overBudget: { _id: string; name: string; clientName: string; paceIndexHours: number }[];
-        pendingTimesheets: { count: number; topExperts: { name: string; count: number }[] };
-        burnoutStaff: { _id: string; name: string }[];
-        atRisk: { _id: string; name: string; clientName: string; paceIndexHours: number }[];
-      }>("/dashboard/notifications");
-
-      const items: NotifItem[] = [];
-
-      for (const p of data.overBudget) {
-        items.push({
-          id: `overbudget-${p._id}`,
-          type: "warning",
-          title: t("notif.over_budget"),
-          body: `${p.name} (${p.clientName}) — pace ${p.paceIndexHours.toFixed(2)}`,
-          href: "/dashboard/projects",
-        });
-      }
-
-      if (data.pendingTimesheets.count > 0) {
-        items.push({
-          id: "pending-timesheets",
-          type: "info",
-          title: `${data.pendingTimesheets.count} ${t("notif.timesheets_pending")}`,
-          body: data.pendingTimesheets.topExperts.map(e => `${e.name} (${e.count})`).join(", "),
-          href: "/dashboard/overview",
-        });
-      }
-
-      for (const e of data.burnoutStaff) {
-        items.push({
-          id: `burnout-${e._id}`,
-          type: "error",
-          title: t("notif.burnout_risk"),
-          body: e.name,
-          href: `/dashboard/staff/${e._id}`,
-        });
-      }
-
-      for (const p of data.atRisk) {
-        items.push({
-          id: `atrisk-${p._id}`,
-          type: "info",
-          title: t("notif.at_risk"),
-          body: `${p.name} — pace ${p.paceIndexHours.toFixed(2)}`,
-          href: "/dashboard/projects",
-        });
-      }
-
-      setNotifications(items);
+      const { data } = await api.get<RawNotifData>("/dashboard/notifications");
+      setRawData(data);
     } catch {
       // Notifications are non-critical; silently ignore fetch errors
     }
-  }, [lang]); // recreate when language changes so notification titles are re-translated
+  }, []); // no language dependency — translations are derived in useMemo
 
   // Fetch on mount and every 5 minutes
   useEffect(() => {
@@ -220,7 +265,13 @@ const Header = ({ title, onToggleSidebar }: HeaderProps) => {
         {/* ── Notifications ── */}
         <div ref={notifRef} style={{ position: "relative" }}>
           <button
-            onClick={() => setNotifOpen((v) => !v)}
+            onClick={() => {
+              if (!notifOpen && notifRef.current) {
+                const rect = notifRef.current.getBoundingClientRect();
+                setPanelAnchor({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
+              }
+              setNotifOpen((v) => !v);
+            }}
             aria-label={`Notifications — ${unread} non lues`}
             aria-expanded={notifOpen}
             aria-haspopup="true"
@@ -251,7 +302,7 @@ const Header = ({ title, onToggleSidebar }: HeaderProps) => {
               role="dialog"
               aria-label="Notifications"
               style={{
-                position: "absolute", top: "calc(100% + 8px)", right: 0,
+                position: "fixed", top: `${panelAnchor.top}px`, right: `${panelAnchor.right}px`,
                 width: "320px",
                 backgroundColor: "var(--color-bg-sidebar)",
                 border: "1px solid var(--color-border-default)",
@@ -267,7 +318,7 @@ const Header = ({ title, onToggleSidebar }: HeaderProps) => {
                 </span>
                 {unread > 0 && (
                   <button
-                    onClick={() => setDismissed(notifications.map(n => n.id))}
+                    onClick={dismissAll}
                     style={{ fontSize: "11px", color: "var(--color-text-tertiary)", background: "none", border: "none", cursor: "pointer" }}
                   >
                     {t("notif.mark_all_read")}
@@ -300,7 +351,7 @@ const Header = ({ title, onToggleSidebar }: HeaderProps) => {
                           <p style={{ fontSize: "12px", color: "var(--color-text-secondary)", margin: "2px 0 0", lineHeight: 1.4 }}>{n.body}</p>
                         </div>
                         <button
-                          onClick={(e) => { e.stopPropagation(); setDismissed(prev => [...prev, n.id]); }}
+                          onClick={(e) => { e.stopPropagation(); dismissOne(n.id); }}
                           aria-label={t("notif.dismiss")}
                           style={{ flexShrink: 0, background: "none", border: "none", cursor: "pointer", color: "var(--color-text-tertiary)", padding: "2px" }}
                         >

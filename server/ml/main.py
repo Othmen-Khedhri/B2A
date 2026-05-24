@@ -323,6 +323,24 @@ async def retrain(file: UploadFile = File(...)):
     }
 
 
+# ── Retrain from existing data (no upload) ────────────────────────────────────
+
+@app.post("/retrain-db", dependencies=[__import__("fastapi").Depends(verify_ml_secret)])
+async def retrain_from_db():
+    """Retrain models on the existing raw.xlsx — called after DB sync, no file needed."""
+    if not RAW_PATH.exists():
+        raise HTTPException(status_code=404, detail="No training data found. Upload data first.")
+    try:
+        train(force_preprocess=True)
+        load_models()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Training failed: {e}")
+    return {
+        "message": "Retrain complete",
+        "total_rows": len(store.df_meta) if store.df_meta is not None else 0,
+    }
+
+
 # ── Health check ───────────────────────────────────────────────────────────────
 
 @app.get("/health")

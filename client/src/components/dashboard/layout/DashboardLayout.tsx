@@ -3,17 +3,21 @@ import { Outlet, useLocation } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
 import { useLanguage } from "../../../context/LanguageContext";
+import GuideButton from "../../ui/guide/GuideButton";
 
 const titleKeys: Record<string, string> = {
-  "/dashboard":             "page.overview",
-  "/dashboard/projects":    "page.projects",
-  "/dashboard/staff":       "page.staff",
-  "/dashboard/assignments": "page.assignments",
-  "/dashboard/import":      "page.import",
-  "/dashboard/estimation":  "page.estimation",
-  "/dashboard/clients":     "page.clients",
-  "/dashboard/audit-logs":  "page.audit",
-  "/dashboard/profile":     "page.profile",
+  "/dashboard":               "page.overview",
+  "/dashboard/projects":      "page.projects",
+  "/dashboard/staff":         "page.staff",
+  "/dashboard/assignments":   "page.assignments",
+  "/dashboard/timesheets":    "page.timesheets",
+  "/dashboard/import":        "page.import",
+  "/dashboard/parse":         "page.parse",
+  "/dashboard/estimation":    "page.estimation",
+  "/dashboard/team-builder":  "page.teambuilder",
+  "/dashboard/clients":       "page.clients",
+  "/dashboard/audit-logs":    "page.audit",
+  "/dashboard/profile":       "page.profile",
 };
 
 const DashboardLayout = () => {
@@ -46,6 +50,7 @@ const DashboardLayout = () => {
           </div>
         </main>
       </div>
+      <GuideButton />
     </div>
   );
 };

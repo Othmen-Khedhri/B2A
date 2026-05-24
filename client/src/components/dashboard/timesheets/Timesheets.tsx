@@ -1,11 +1,117 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useLayoutEffect } from "react";
 import { createPortal } from "react-dom";
 import {
   FileSpreadsheet, Upload, X, Search, RefreshCw, CheckCircle2,
-  AlertCircle, Clock, ChevronDown, ChevronUp, Calendar, Users, Trash2,
+  AlertCircle, Clock, ChevronDown, ChevronUp, Trash2,
 } from "lucide-react";
 import api from "../../../services/api";
 import { useToast } from "../../../context/ToastContext";
+
+// ─── CollabSelect ─────────────────────────────────────────────────────────────
+
+function CollabSelect({ collabs, value, onChange }: {
+  collabs: Collab[];
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [dropUp, setDropUp] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  const selected = collabs.find((c) => c._id === value);
+  const filtered = query
+    ? collabs.filter((c) => c.name.toLowerCase().includes(query.toLowerCase()))
+    : collabs;
+
+  useLayoutEffect(() => {
+    if (!open || !triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    setDropUp(rect.bottom + 280 > window.innerHeight - 8);
+    setTimeout(() => searchRef.current?.focus(), 0);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) { setQuery(""); return; }
+    const handler = (e: MouseEvent) => {
+      if (!containerRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const getDropdownStyle = (): React.CSSProperties => {
+    if (!triggerRef.current) return {};
+    const rect = triggerRef.current.getBoundingClientRect();
+    return {
+      position: "fixed",
+      left: rect.left,
+      width: rect.width,
+      ...(dropUp
+        ? { bottom: window.innerHeight - rect.top + 4 }
+        : { top: rect.bottom + 4 }),
+      zIndex: 9999,
+    };
+  };
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-3 py-2.5 text-sm rounded-xl border border-[#CACAC4] dark:border-white/[0.06] bg-white dark:bg-[#1A1A1D] text-[#0D0D0D] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#FFD600]/50"
+      >
+        <span className={selected ? "" : "text-[#9E9EA3]"}>
+          {selected ? selected.name : "Select a collaborator…"}
+        </span>
+        <ChevronDown className="w-4 h-4 text-[#9E9EA3] shrink-0" />
+      </button>
+
+      {open && createPortal(
+        <div style={getDropdownStyle()} className="bg-white dark:bg-[#2A2A2E] border border-[#CACAC4] dark:border-white/[0.10] rounded-xl shadow-2xl overflow-hidden flex flex-col">
+          {/* Search input */}
+          <div className="p-2 border-b border-[#CACAC4] dark:border-white/[0.06]">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#9E9EA3]" />
+              <input
+                ref={searchRef}
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Type to search…"
+                className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-[#CACAC4] dark:border-white/[0.06] bg-[#F7F7F7] dark:bg-[#1A1A1D] text-[#0D0D0D] dark:text-white placeholder:text-[#9E9EA3] focus:outline-none focus:ring-2 focus:ring-[#FFD600]/50"
+              />
+            </div>
+          </div>
+          {/* Options list */}
+          <ul className="overflow-y-auto py-1" style={{ maxHeight: 220 }}>
+            {filtered.length === 0 ? (
+              <li className="px-3 py-3 text-sm text-[#9E9EA3] text-center">No results</li>
+            ) : (
+              filtered.map((c) => (
+                <li
+                  key={c._id}
+                  onMouseDown={() => { onChange(c._id); setOpen(false); }}
+                  className={`px-3 py-2 text-sm cursor-pointer hover:bg-[#F2F2F2] dark:hover:bg-white/[0.06] ${
+                    c._id === value
+                      ? "bg-[#FFD600]/10 text-[#0D0D0D] dark:text-white font-medium"
+                      : "text-[#0D0D0D] dark:text-white"
+                  }`}
+                >
+                  {c.name}
+                </li>
+              ))
+            )}
+          </ul>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -118,13 +224,7 @@ function UploadModal({ collabs, onClose, onDone }: { collabs: Collab[]; onClose:
                 <label className="block text-xs font-semibold text-[#6B6B6F] dark:text-[#9E9EA3] uppercase tracking-wide mb-1.5">
                   Collaborator
                 </label>
-                <select value={collabId} onChange={(e) => setCollabId(e.target.value)}
-                  className="w-full px-3 py-2.5 text-sm rounded-xl border border-[#CACAC4] dark:border-white/[0.06] bg-white dark:bg-[#1A1A1D] text-[#0D0D0D] dark:text-white focus:outline-none focus:ring-2 focus:ring-[#FFD600]/50">
-                  <option value="">Select a collaborator…</option>
-                  {collabs.map((c) => (
-                    <option key={c._id} value={c._id}>{c.name}</option>
-                  ))}
-                </select>
+                <CollabSelect collabs={collabs} value={collabId} onChange={setCollabId} />
               </div>
 
               {/* Drop zone */}
@@ -196,8 +296,8 @@ function TimesheetCard({ sheet, onDelete }: { sheet: Timesheet; onDelete: (id: s
   for (const e of sheet.entries) {
     clientMap.set(e.clientName, (clientMap.get(e.clientName) || 0) + e.hours);
   }
+  const sortedClients = Array.from(clientMap.entries()).sort((a, b) => b[1] - a[1]);
 
-  // Group entries by date for calendar-style display
   const byDate = new Map<string, TimesheetEntry[]>();
   for (const e of sheet.entries) {
     const d = new Date(e.date).toISOString().split("T")[0];
@@ -206,73 +306,80 @@ function TimesheetCard({ sheet, onDelete }: { sheet: Timesheet; onDelete: (id: s
   }
   const sortedDates = Array.from(byDate.keys()).sort();
 
+  const initials = sheet.collabName.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
+
   return (
-    <div className="bg-white dark:bg-[#2A2A2E] rounded-2xl border border-[#CACAC4] dark:border-white/[0.06] overflow-hidden">
+    <div className="bg-white dark:bg-[#2A2A2E] rounded-xl border border-[#CACAC4] dark:border-white/[0.06] overflow-hidden">
+
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-4 cursor-pointer hover:bg-[#FFD600]/5 transition"
-        onClick={() => setExpanded(!expanded)}>
-        <div className="flex items-center gap-3 flex-1 min-w-0">
-          <div className="p-2 rounded-xl bg-[#FFD600]/10 shrink-0">
-            <Users className="w-4 h-4 text-[#FFD600]" />
-          </div>
-          <div className="min-w-0">
-            <p className="font-semibold text-[#0D0D0D] dark:text-white text-sm">{sheet.collabName}</p>
-            <p className="text-xs text-[#9E9EA3] mt-0.5">
-              {MONTH_NAMES[sheet.month - 1]} {sheet.year} · {sheet.entries.length} entries · uploaded {new Date(sheet.uploadedAt).toLocaleDateString("en-GB")}
-            </p>
-          </div>
+      <div
+        className="flex items-center gap-4 px-5 py-4 cursor-pointer hover:bg-[#F7F7F7] dark:hover:bg-white/[0.02] transition"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className="w-8 h-8 rounded-full bg-[#F2F2F2] dark:bg-[#1A1A1D] flex items-center justify-center text-xs font-bold text-[#0D0D0D] dark:text-white shrink-0">
+          {initials}
         </div>
-        <div className="flex items-center gap-4 shrink-0">
-          <div className="text-right">
-            <p className="font-bold text-[#0D0D0D] dark:text-white">{fmt(totalHours)}h</p>
-            <p className="text-xs text-[#9E9EA3]">{clientMap.size} clients</p>
-          </div>
-          <button
-            onClick={(e) => { e.stopPropagation(); onDelete(sheet._id); }}
-            className="p-1.5 rounded-lg text-[#9E9EA3] hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition">
-            <Trash2 className="w-4 h-4" />
-          </button>
-          {expanded ? <ChevronUp className="w-4 h-4 text-[#9E9EA3]" /> : <ChevronDown className="w-4 h-4 text-[#9E9EA3]" />}
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-[#0D0D0D] dark:text-white text-sm leading-none">{sheet.collabName}</p>
+          <p className="text-xs text-[#9E9EA3] mt-1">
+            {MONTH_NAMES[sheet.month - 1]} {sheet.year} · {sheet.entries.length} entries · uploaded {new Date(sheet.uploadedAt).toLocaleDateString("en-GB")}
+          </p>
         </div>
+        <div className="text-right shrink-0">
+          <p className="text-sm font-bold text-[#0D0D0D] dark:text-white tabular-nums">{fmt(totalHours)}h</p>
+          <p className="text-xs text-[#9E9EA3] mt-0.5">{clientMap.size} clients</p>
+        </div>
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(sheet._id); }}
+          className="p-1.5 rounded-lg text-[#CACAC4] dark:text-white/20 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition shrink-0"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+        {expanded
+          ? <ChevronUp className="w-4 h-4 text-[#9E9EA3] shrink-0" />
+          : <ChevronDown className="w-4 h-4 text-[#9E9EA3] shrink-0" />
+        }
       </div>
 
       {expanded && (
         <div className="border-t border-[#CACAC4] dark:border-white/[0.06]">
 
-          {/* Client distribution */}
-          <div className="px-5 py-4 bg-[#F2F2F2] dark:bg-[#1A1A1D] border-b border-[#CACAC4] dark:border-white/[0.06]">
-            <p className="text-xs font-bold uppercase tracking-wide text-[#9E9EA3] mb-3">Hours by client</p>
-            <div className="flex flex-wrap gap-2">
-              {Array.from(clientMap.entries()).map(([client, hrs]) => (
-                <div key={client} className="flex items-center gap-2 bg-white dark:bg-[#2A2A2E] rounded-xl px-3 py-1.5 border border-[#CACAC4] dark:border-white/[0.06]">
-                  <span className="text-xs font-medium text-[#0D0D0D] dark:text-white truncate max-w-[120px]">{client}</span>
-                  <span className="text-xs font-bold text-[#FFD600]">{fmt(hrs)}h</span>
+          {/* Client breakdown — clean two-column rows */}
+          <div className="px-5 py-3 bg-[#F7F7F7] dark:bg-[#1A1A1D] border-b border-[#CACAC4] dark:border-white/[0.06]">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-[#9E9EA3] mb-2">Hours by client</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-8 gap-y-1.5">
+              {sortedClients.map(([client, hrs]) => (
+                <div key={client} className="flex items-center justify-between gap-2 min-w-0">
+                  <span className="text-xs text-[#6B6B6F] dark:text-[#9E9EA3] truncate">{client}</span>
+                  <span className="text-xs font-semibold text-[#0D0D0D] dark:text-white tabular-nums shrink-0">{fmt(hrs)}h</span>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Calendar-style day entries */}
-          <div className="divide-y divide-[#CACAC4]/40 dark:divide-white/[0.04]">
+          {/* Day entries */}
+          <div className="divide-y divide-[#CACAC4]/30 dark:divide-white/[0.04]">
             {sortedDates.map((d) => {
               const dayEntries = byDate.get(d)!;
               const dayTotal = dayEntries.reduce((s, e) => s + e.hours, 0);
               return (
                 <div key={d} className="px-5 py-3">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Calendar className="w-3.5 h-3.5 text-[#9E9EA3]" />
+                  {/* Day header */}
+                  <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-semibold text-[#0D0D0D] dark:text-white">
                       {new Date(d).toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short" })}
                     </span>
-                    <span className="text-xs text-[#9E9EA3] ml-auto">{fmt(dayTotal)}h total</span>
+                    <span className="text-xs text-[#9E9EA3] tabular-nums">{fmt(dayTotal)}h</span>
                   </div>
-                  <div className="space-y-1.5 pl-5">
+                  {/* Entry rows — fixed columns for easy scanning */}
+                  <div className="space-y-1">
                     {dayEntries.map((e, i) => (
-                      <div key={i} className="flex items-start gap-3 text-xs">
-                        <span className="font-bold text-[#FFD600] shrink-0 w-8">{e.hours}h</span>
-                        <span className="text-[#0D0D0D] dark:text-white font-medium shrink-0 max-w-[120px] truncate">{e.clientName}</span>
-                        <span className="text-[#9E9EA3] shrink-0">{e.prestation}</span>
-                        <span className="text-[#9E9EA3] truncate">{e.detail}</span>
+                      <div key={i} className="grid text-xs" style={{ gridTemplateColumns: "3rem 11rem 1fr" }}>
+                        <span className="text-[#FFD600] font-semibold tabular-nums">{e.hours}h</span>
+                        <span className="text-[#0D0D0D] dark:text-white truncate pr-3">{e.clientName}</span>
+                        <span className="text-[#9E9EA3] truncate">
+                          {[e.prestation, e.detail].filter(Boolean).join("  ·  ")}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -280,6 +387,7 @@ function TimesheetCard({ sheet, onDelete }: { sheet: Timesheet; onDelete: (id: s
               );
             })}
           </div>
+
         </div>
       )}
     </div>
@@ -307,7 +415,10 @@ export default function Timesheets() {
   // Load collabs once — independent of month/year so the selector always works
   useEffect(() => {
     api.get<Collab[]>("/staff")
-      .then((r) => setCollabs(r.data.filter((c) => ["collaborator", "worker"].includes(c.role))))
+      .then((r) => {
+        const filtered = r.data.filter((c) => ["collaborator", "worker"].includes(c.role));
+        setCollabs([...new Map(filtered.map((c) => [c._id, c])).values()]);
+      })
       .catch(() => { /* non-blocking */ });
   }, []);
 

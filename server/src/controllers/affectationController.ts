@@ -1,10 +1,23 @@
+// ─── Affectation controller ───────────────────────────────────────────────────
+// Read-only API for the Affectation collection, plus one admin repair endpoint.
+// Affectations are a derived/cached collection — the source of truth is
+// Project.assignedStaff. They exist purely for fast "who is assigned where?" queries
+// without needing to join the projects collection.
+//
+//   GET  /api/affectations             — flat list (filterable by expertId or projectId)
+//   GET  /api/affectations/by-expert   — each expert with their active projects grouped
+//   GET  /api/affectations/by-project  — each active project with its assigned staff
+//   POST /api/affectations/rebuild     — admin: wipe and rebuild from current Project state
+
 import { Request, Response } from "express";
 import Affectation from "../models/Affectation";
 import { rebuildAllAffectations } from "../utils/affectationSync";
 
-/** GET /api/affectations
- *  Optional query params: expertId, projectId
- */
+// ─── GET /api/affectations ────────────────────────────────────────────────────
+// Returns affectation records sorted by expert name then project name.
+// Optional query filters:
+//   expertId  — show only this expert's assignments
+//   projectId — show only this project's assigned staff
 export const getAffectations = async (req: Request, res: Response): Promise<void> => {
   try {
     const { expertId, projectId } = req.query;
@@ -21,17 +34,20 @@ export const getAffectations = async (req: Request, res: Response): Promise<void
   }
 };
 
-/** GET /api/affectations/by-expert
- *  Returns each expert with their active projects grouped under them.
- */
+// ─── GET /api/affectations/by-expert ─────────────────────────────────────────
+// Returns each expert as a top-level object, with their active project assignments
+// nested under a "projects" array.
+// Used by the Staff page to show "this person is assigned to X, Y, Z projects".
+// The $group aggregation is more efficient than fetching flat records and grouping
+// on the frontend.
 export const getAffectationsByExpert = async (_req: Request, res: Response): Promise<void> => {
   try {
     const rows = await Affectation.aggregate([
       {
         $group: {
-          _id: "$expertId",
+          _id:        "$expertId",
           expertName: { $first: "$expertName" },
-          projects: {
+          projects:   {
             $push: {
               projectId:   "$projectId",
               projectName: "$projectName",
@@ -43,7 +59,7 @@ export const getAffectationsByExpert = async (_req: Request, res: Response): Pro
           },
         },
       },
-      { $sort: { expertName: 1 } },
+      { $sort: { expertName: 1 } }, // alphabetical for consistent rendering
     ]);
     res.json(rows);
   } catch (err) {
@@ -52,15 +68,15 @@ export const getAffectationsByExpert = async (_req: Request, res: Response): Pro
   }
 };
 
-/** GET /api/affectations/by-project
- *  Returns each active project with the list of assigned staff.
- */
+// ─── GET /api/affectations/by-project ────────────────────────────────────────
+// Returns each active project with the list of assigned staff nested under it.
+// Used by the Projects page to show "this project has X, Y, Z people assigned".
 export const getAffectationsByProject = async (_req: Request, res: Response): Promise<void> => {
   try {
     const rows = await Affectation.aggregate([
       {
         $group: {
-          _id: "$projectId",
+          _id:         "$projectId",
           projectName: { $first: "$projectName" },
           clientName:  { $first: "$clientName" },
           externalId:  { $first: "$externalId" },
@@ -83,10 +99,11 @@ export const getAffectationsByProject = async (_req: Request, res: Response): Pr
   }
 };
 
-/** POST /api/affectations/rebuild
- *  Admin-only: wipe and rebuild the entire affectations collection
- *  from the current state of active projects.
- */
+// ─── POST /api/affectations/rebuild ──────────────────────────────────────────
+// Admin-only repair: wipes the entire affectations collection and rebuilds it
+// from the current Project.assignedStaff values.
+// Should only be needed after manual DB edits or import operations that bypass
+// the normal project update flow (which calls syncProjectAffectations automatically).
 export const rebuildAffectations = async (_req: Request, res: Response): Promise<void> => {
   try {
     const upserted = await rebuildAllAffectations();
