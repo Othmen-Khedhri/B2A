@@ -129,19 +129,11 @@ function KpiRow({ stats }: { stats: DashboardStats }) {
   const { t } = useLanguage();
   const overPct = stats.totalProjects > 0 ? Math.round((stats.overBudgetProjects / stats.totalProjects) * 100) : 0;
   const totalYtdGain = stats.top10Rentable.reduce((s, c) => s + c.ytdClientGain, 0);
-  const redCount     = stats.top10Depassement.length;
+  const totalDepLoss = stats.top10Depassement.reduce((s, c) => s + c.ytdClientGain, 0);
 
   return (
     <div className="stagger-children grid grid-cols-2 lg:grid-cols-3 gap-4">
-      <KpiCard
-        icon={<AlertTriangle size={20} className="text-red-500" />}
-        label={t("overview.kpi_overrun_clients")}
-        value={String(redCount)}
-        sub={redCount > 0 ? t("overview.kpi_overrun_sub") : t("overview.kpi_all_ok")}
-        accentClass="text-red-600 dark:text-red-400"
-        borderClass="border-l-red-500"
-      />
-      <KpiCard
+<KpiCard
         icon={<Users size={20} className="text-blue-500" />}
         label={t("overview.kpi_active_collabs")}
         value={String(stats.totalStaff)}
@@ -154,6 +146,13 @@ function KpiRow({ stats }: { stats: DashboardStats }) {
         value={`${totalYtdGain >= 0 ? "+" : ""}${fmt(totalYtdGain, 1)}h`}
         accentClass={totalYtdGain >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}
         borderClass="border-l-green-500"
+      />
+      <KpiCard
+        icon={<TrendingDown size={20} className="text-red-500" />}
+        label={t("overview.kpi_dep_loss")}
+        value={`${fmt(totalDepLoss, 1)}h`}
+        accentClass="text-red-600 dark:text-red-400"
+        borderClass="border-l-red-500"
       />
     </div>
   );
