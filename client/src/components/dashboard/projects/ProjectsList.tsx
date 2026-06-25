@@ -246,9 +246,11 @@ export default function ProjectsList() {
   const [paceMap, setPaceMap]     = useState<Record<string, PaceSummary>>({});
   const [loading, setLoading]     = useState(true);
   const [search, setSearch]         = useState("");
-  const [showImport, setShowImport] = useState(false);
+  const [showImport, setShowImport]           = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [deleting, setDeleting]     = useState(false);
+  const [deleting, setDeleting]               = useState(false);
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
+  const [deletingAll, setDeletingAll]           = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -271,6 +273,20 @@ export default function ProjectsList() {
   }, [year, toast]);
 
   useEffect(() => { load(); }, [load]);
+
+  const handleDeleteAll = async () => {
+    setDeletingAll(true);
+    try {
+      await api.delete(`/budget/${year}`);
+      toast(`Deleted all budget entries for ${year}.`, "success");
+      setConfirmDeleteAll(false);
+      load();
+    } catch {
+      toast("Failed to delete all budget entries.", "error");
+    } finally {
+      setDeletingAll(false);
+    }
+  };
 
   const handleDelete = async (c: BudgetClient) => {
     setDeleting(true);
@@ -323,6 +339,13 @@ export default function ProjectsList() {
             className="flex items-center gap-2 px-3 py-2 rounded-xl border border-[#CACAC4] dark:border-white/[0.06] text-sm text-[#6B6B6F] dark:text-[#9E9EA3] hover:bg-[#F2F2F2] dark:hover:bg-white/[0.04] transition disabled:opacity-50">
             <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
           </button>
+          {clients.length > 0 && (
+            <button onClick={() => setConfirmDeleteAll(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl border border-red-300 dark:border-red-800 text-red-600 dark:text-red-400 text-sm font-semibold hover:bg-red-50 dark:hover:bg-red-900/20 transition">
+              <Trash2 className="w-4 h-4" />
+              Delete All
+            </button>
+          )}
           <button onClick={() => setShowImport(true)}
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#FFD600] text-[#0D0D0D] text-sm font-semibold hover:bg-[#e6c200] transition shadow-sm">
             <Upload className="w-4 h-4" />
@@ -474,6 +497,41 @@ export default function ProjectsList() {
             );
           })}
         </div>
+      )}
+
+      {/* Delete All confirmation modal */}
+      {confirmDeleteAll && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white dark:bg-[#2A2A2E] rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-5 border-b border-[#CACAC4] dark:border-white/[0.06]">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-red-100 dark:bg-red-900/30">
+                  <Trash2 className="w-5 h-5 text-red-600 dark:text-red-400" />
+                </div>
+                <h2 className="text-base font-bold text-[#0D0D0D] dark:text-white">Delete All Budgets</h2>
+              </div>
+              <button onClick={() => setConfirmDeleteAll(false)} className="p-1.5 rounded-lg text-[#9E9EA3] hover:text-[#0D0D0D] dark:hover:text-white hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-6 py-5">
+              <p className="text-sm text-[#6B6B6F] dark:text-[#9E9EA3]">
+                This will permanently delete all <span className="font-semibold text-[#0D0D0D] dark:text-white">{clients.length} budget {clients.length === 1 ? "entry" : "entries"}</span> for <span className="font-semibold text-[#0D0D0D] dark:text-white">{year}</span>. This action cannot be undone.
+              </p>
+            </div>
+            <div className="px-6 py-4 border-t border-[#CACAC4] dark:border-white/[0.06] flex justify-end gap-3">
+              <button onClick={() => setConfirmDeleteAll(false)} className="px-4 py-2 text-sm rounded-xl border border-[#CACAC4] dark:border-white/[0.06] text-[#6B6B6F] dark:text-[#9E9EA3] hover:bg-[#F2F2F2] dark:hover:bg-white/[0.04] transition">
+                Cancel
+              </button>
+              <button onClick={handleDeleteAll} disabled={deletingAll}
+                className="flex items-center gap-2 px-5 py-2 text-sm font-semibold rounded-xl bg-red-600 text-white hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
+                {deletingAll ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                {deletingAll ? "Deleting…" : "Delete All"}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
 
       {/* Import modal */}
