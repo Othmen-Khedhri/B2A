@@ -23,7 +23,7 @@ SECTEUR_CATEGORIES = [
     "Commerce & Distribution", "Conseil & Audit", "Éducation & Formation",
     "Immobilier", "Industrie", "Santé", "Services",
     "Technologie & IT", "Transport & Logistique",
-]
+]      
 
 MISSION_CATEGORIES = [
     "Assistance juridique", "Audit interne", "Audit légal",
