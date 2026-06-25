@@ -220,7 +220,7 @@ export const getCollabTimesheet = async (req: AuthRequest, res: Response): Promi
 export const getClientTimesheetSummary = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const year       = Number(req.params.year);
-    const clientName = decodeURIComponent(req.params.clientName);
+    const clientName = decodeURIComponent(req.params.clientName as string);
 
     // Load all timesheets for the year and filter entries by client name
     const sheets = await Timesheet.find({ year }).lean();

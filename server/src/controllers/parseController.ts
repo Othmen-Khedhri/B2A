@@ -22,7 +22,7 @@ import { AuthRequest } from "../middleware/authMiddleware";
 // apply it as middleware without importing multer again.
 export const upload = multer({ storage: multer.memoryStorage() });
 
-type CellValue = string | number | boolean | null | undefined;
+type CellValue = string | number | boolean | Date | null | undefined;
 
 // ─── processSheet ─────────────────────────────────────────────────────────────
 // Port of merge.py — cleans and merges a single worksheet.

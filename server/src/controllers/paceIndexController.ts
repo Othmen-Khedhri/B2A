@@ -61,7 +61,7 @@ interface MonthData {
 export const getPaceIndex = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const year       = Number(req.params.year);
-    const clientName = decodeURIComponent(req.params.clientName);
+    const clientName = decodeURIComponent(req.params.clientName as string);
 
     const budget = await AnnualBudget.findOne({ year, clientName }).lean();
     if (!budget) {

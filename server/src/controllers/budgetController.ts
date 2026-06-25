@@ -125,7 +125,7 @@ export const getBudgetByYear = async (req: AuthRequest, res: Response): Promise<
 export const getBudgetClient = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const year       = Number(req.params.year);
-    const clientName = decodeURIComponent(req.params.clientName);
+    const clientName = decodeURIComponent(req.params.clientName as string);
     const budget = await AnnualBudget.findOne({ year, clientName }).lean();
     if (!budget) {
       res.status(404).json({ message: "Client not found in budget" });
@@ -158,7 +158,7 @@ export const deleteBudgetYear = async (req: AuthRequest, res: Response): Promise
 export const deleteBudgetClient = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const year       = Number(req.params.year);
-    const clientName = decodeURIComponent(req.params.clientName);
+    const clientName = decodeURIComponent(req.params.clientName as string);
     const result = await AnnualBudget.deleteOne({ year, clientName });
     if (result.deletedCount === 0) {
       res.status(404).json({ message: "Budget entry not found" });

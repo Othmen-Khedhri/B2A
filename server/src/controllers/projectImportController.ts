@@ -304,7 +304,7 @@ export const importProjects = async (req: AuthRequest, res: Response): Promise<v
         const type = PROJECT_TYPES.find(
           (t) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase() ===
                  typeRaw.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
-        ) ?? typeRaw || "Général";
+        ) ?? (typeRaw || "Général");
 
         const managerName = toStr(col(row, "Manager Proposé", "Responsable", "Manager", "Collab Principal", "manager"));
         const budgetCost  = toNum(
