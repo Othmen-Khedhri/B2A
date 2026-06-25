@@ -72,7 +72,6 @@ const TeamBuilder = () => {
   const budgetDelta  = budgetNum - totalCost;
   const costPct      = budgetNum > 0 && totalCost > 0 ? Math.min((totalCost / budgetNum) * 100, 100) : 0;
   const isOver       = budgetNum > 0 && hoursNum > 0 && selectedCollabs.length > 0 && budgetDelta < 0;
-  const isUnder      = budgetNum > 0 && hoursNum > 0 && selectedCollabs.length > 0 && budgetDelta >= 0;
 
   const suggestedLevel   = budgetNum > 0 && budgetNum < 1000 ? "Junior" : budgetNum >= 1000 ? "Senior" : null;
   const suggestedCollabs = suggestedLevel

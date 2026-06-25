@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   TrendingUp, TrendingDown, Users,
-  AlertTriangle, BarChart2, Activity, ChevronDown, ChevronUp, RefreshCw,
+  BarChart2, Activity, ChevronDown, ChevronUp, RefreshCw,
 } from "lucide-react";
 import api from "../../../services/api";
 import { useLanguage } from "../../../context/LanguageContext";
@@ -127,7 +127,6 @@ function KpiCard({ icon, label, value, sub, accentClass = "", borderClass = "bor
 
 function KpiRow({ stats }: { stats: DashboardStats }) {
   const { t } = useLanguage();
-  const overPct = stats.totalProjects > 0 ? Math.round((stats.overBudgetProjects / stats.totalProjects) * 100) : 0;
   const totalYtdGain = stats.top10Rentable.reduce((s, c) => s + c.ytdClientGain, 0);
   const totalDepLoss = stats.top10Depassement.reduce((s, c) => s + c.ytdClientGain, 0);
 

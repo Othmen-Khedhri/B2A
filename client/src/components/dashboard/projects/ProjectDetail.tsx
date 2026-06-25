@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  AreaChart, Area, PieChart, Pie, Cell, TooltipProps,
+  AreaChart, Area, PieChart, Pie, Cell,
 } from "recharts";
 import api from "../../../services/api";
 import { useToast } from "../../../context/ToastContext";
@@ -435,7 +435,11 @@ function PaceTab({ clientName, year }: { clientName: string; year: number }) {
 
 const COLLAB_COLORS = ["#FFD600","#0D0D0D","#6366f1","#10b981","#f59e0b","#ef4444","#3b82f6","#8b5cf6"];
 
-function ChartTooltip({ active, payload, label }: TooltipProps<number, string>) {
+function ChartTooltip({ active, payload, label }: {
+  active?: boolean;
+  payload?: Array<{ name?: string; value?: number; color?: string }>;
+  label?: string;
+}) {
   if (!active || !payload?.length) return null;
   return (
     <div className="bg-white dark:bg-[#2A2A2E] border border-[#CACAC4] dark:border-white/[0.08] rounded-xl px-3 py-2 shadow-lg text-xs">
@@ -563,7 +567,7 @@ function FinancialTab({ client, paceData }: { client: BudgetClient; paceData: Pa
                       <Cell key={i} fill={COLLAB_COLORS[i % COLLAB_COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(v: number) => [`${v.toLocaleString()} TND`, ""]} />
+                  <Tooltip formatter={(v) => [`${Number(v).toLocaleString()} TND`, ""]} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
